@@ -1,0 +1,47 @@
+services:
+
+  web-site:
+    image: docker/dev-environments-ujnotes-web-site:stable-1
+    init: true
+    volumes:
+      - ../site/project/conf/httpd-vhosts.conf:/etc/apache2/sites-available/000-default.conf:ro
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+      - ..:/app
+    build: ../site/project
+    extra_hosts:
+      - "local.ujnotes.codes:127.0.0.1"
+      - "interim.ujnotes.codes:127.0.0.1"
+      - "public.ujnotes.codes:127.0.0.1"
+    #restart: always
+    networks:
+      dan:
+        ipv4_address: 10.8.0.2
+
+  nginx-proxy:
+    image: nginx:latest
+    init: true
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf:/etc/nginx/conf:ro
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+      - ..:/app
+    build: ./nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - web-site
+    #restart: always
+    networks:
+      - dan
+      
+networks:
+  dan:
+    driver: bridge
+    ipam:
+     config:
+       - subnet: 10.8.0.0/24

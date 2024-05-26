@@ -1,4 +1,2 @@
 nginx/conf/
-.firebase/
-public/
-interim/
+build/

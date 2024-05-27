@@ -18,7 +18,7 @@ copy_dot_dirs() {
   done
 }
 
-# moving in app files after web files inorder to overwrite
+# moving in app files after web files in order to overwrite
 
 copy_dot_dirs /app/site/project/interim ./build/interim
 copy_dot_dirs /app/site/project/public ./build/public

@@ -2,11 +2,14 @@
 
 FROM nginx:latest
 
-RUN <<EOF
-apt-get update
-apt-get install wget
-apt-get install minify
-EOF
+ENV CLOSURE_COMPILER_VERSION 20240317
+
+# Create the gclosure directory first
+RUN mkdir -p /usr/local/lib/gclosure
+
+# Download and move the Closure Compiler JAR in one step
+RUN wget -O /usr/local/lib/gclosure/closure-compiler.jar \
+"https://repo1.maven.org/maven2/com/google/javascript/closure-compiler/v$CLOSURE_COMPILER_VERSION/closure-compiler-v$CLOSURE_COMPILER_VERSION.jar"
 
 EXPOSE 80 443
 

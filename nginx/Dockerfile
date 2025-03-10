@@ -5,7 +5,11 @@ FROM nginx:latest
 ENV CLOSURE_COMPILER_VERSION 20240317
 
 # Install wget
-RUN apt-get update && apt-get install -y wget && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && \
+    apt-get install -y wget && \
+    apt-get install -y minify && \
+    apt-get install -y default-jre && \
+    rm -rf /var/lib/apt/lists/*
 
 # Create the gclosure directory
 RUN mkdir -p /usr/local/lib/gclosure

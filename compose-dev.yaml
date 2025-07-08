@@ -1,7 +1,7 @@
 services:
 
   web-site:
-    image: docker/dev-environments-ujnotes-web-site:stable-1
+    image: docker/dev-environments-cutie-web-site:stable-1
     init: true
     volumes:
       - ../site/project/httpd-vhosts.conf:/etc/apache2/sites-available/000-default.conf:ro
@@ -11,9 +11,9 @@ services:
       - ..:/app
     build: ../site/project
     extra_hosts:
-      - "local.ujnotes.codes:127.0.0.1"
-      - "interim.ujnotes.codes:127.0.0.1"
-      - "public.ujnotes.codes:127.0.0.1"
+      - "local.cutie.codes:127.0.0.1"
+      - "interim.cutie.codes:127.0.0.1"
+      - "public.cutie.codes:127.0.0.1"
     #restart: always
     networks:
       dan:

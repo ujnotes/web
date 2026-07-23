@@ -220,15 +220,28 @@ function Add-SitemapUrl {
         [Parameter(Mandatory)] [string]$Url
     )
 
-    $raw = [System.IO.File]::ReadAllText($Path)
     $uri = [Uri]$Url
-    $slugPattern = '<loc>https?://[^<]+/' + [regex]::Escape($uri.AbsolutePath.Trim('/')) + '/?</loc>'
+    $canonicalUrl = $uri.GetLeftPart([System.UriPartial]::Path).TrimEnd('/')
+    $raw = [System.IO.File]::ReadAllText($Path)
+    $slugPattern = '<loc>https?://' +
+        [regex]::Escape($uri.Authority) +
+        [regex]::Escape($uri.AbsolutePath.TrimEnd('/')) +
+        '/?</loc>'
     if ($raw -match $slugPattern) {
+        $updated = [regex]::Replace(
+            $raw,
+            $slugPattern,
+            "<loc>$canonicalUrl</loc>",
+            [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+        )
+        if ($updated -cne $raw) {
+            Write-Utf8Text -Path $Path -Text $updated
+        }
         return
     }
 
     $newline = if ($raw.Contains("`r`n")) { "`r`n" } else { "`n" }
-    $entry = "<url>${newline}`t<loc>$Url</loc>${newline}</url>${newline}"
+    $entry = "<url>${newline}`t<loc>$canonicalUrl</loc>${newline}</url>${newline}"
     if (-not $raw.Contains('</urlset>')) {
         throw "Invalid sitemap; missing </urlset>: $Path"
     }
@@ -373,9 +386,11 @@ $renderRoot = Join-Path $workRoot 'render'
 $stageProject = Join-Path $workRoot 'site'
 $realIdPath = Join-Path $siteProject 'Config\ID.tsv'
 $realUrlPath = Join-Path $siteProject 'Config\Url.tsv'
+$realSitemapPath = Join-Path $siteProject 'root\Site\SiteMap.xml'
 $realIdBackup = Join-Path $workRoot 'real-ID.tsv.backup'
 $realIdTemporarilyFiltered = $false
 $containerStarted = $false
+$webSiteWasRunning = $false
 $completed = $false
 
 New-Item -ItemType Directory -Path $renderRoot -Force | Out-Null
@@ -486,6 +501,14 @@ print("NCMS_RESULT=" + json.dumps({
     New-Item -ItemType Directory -Path (Split-Path -Parent $realComponent) -Force | Out-Null
     Copy-Item -LiteralPath $renderComponent -Destination $realComponent -Force
 
+    $coverSource = Join-Path $siteProject ("root\Resource\" + $slugPath + "\index.jpg")
+    $componentText = [System.IO.File]::ReadAllText($realComponent)
+    if ((Test-Path -LiteralPath $coverSource) -and -not $componentText.Contains('Component_cover.php')) {
+        $coverAlt = ([string]$article.title).Replace('\', '\\').Replace("'", "\'")
+        $coverMarkup = "<?php `$alt='$coverAlt'; require('../HTML/Fragment/Component_cover.php') ?>"
+        Write-Utf8Text -Path $realComponent -Text ($coverMarkup + "`n`n" + $componentText)
+    }
+
     $renderIdPath = Join-Path $renderRoot 'Config\ID.tsv'
     $articleRow = [System.IO.File]::ReadAllLines($renderIdPath) |
         Where-Object {
@@ -498,8 +521,9 @@ print("NCMS_RESULT=" + json.dumps({
     }
     Merge-IdRow -Path $realIdPath -ArticleSlug $targetSlug -ArticleRow $articleRow
 
-    $hasCover = [System.IO.File]::ReadAllText($renderComponent).Contains('Component_cover.php')
+    $hasCover = [System.IO.File]::ReadAllText($realComponent).Contains('Component_cover.php')
     Merge-UrlRow -Path $realUrlPath -ArticleSlug $targetSlug -HasCover $hasCover
+    Add-SitemapUrl -Path $realSitemapPath -Url "$BaseUrl/$targetSlug"
 
     Write-Step 'Creating the isolated Cutie build'
     $exclude = @(
@@ -534,6 +558,10 @@ print("NCMS_RESULT=" + json.dumps({
     Write-Utf8Text -Path $stageUrlPath -Text $stageUrlText
 
     Wait-Docker
+    $runningServices = @(
+        & docker compose -f $composeFile -p ujnotes ps --status running --services 2>$null
+    )
+    $webSiteWasRunning = $runningServices -contains 'web-site'
     Write-Step 'Starting the local Cutie renderer'
     Invoke-Native -FilePath 'docker' `
         -ArgumentList @('compose', '-f', $composeFile, '-p', 'ujnotes', 'up', '-d', 'web-site') `
@@ -717,7 +745,7 @@ finally {
         Copy-Item -LiteralPath $realIdBackup -Destination $realIdPath -Force
     }
 
-    if ($containerStarted -and -not $KeepBuildContainer) {
+    if ($containerStarted -and -not $webSiteWasRunning -and -not $KeepBuildContainer) {
         try {
             Invoke-Native -FilePath 'docker' `
                 -ArgumentList @('compose', '-f', $composeFile, '-p', 'ujnotes', 'stop', 'web-site') `

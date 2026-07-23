@@ -223,6 +223,7 @@ function Add-SitemapUrl {
     $uri = [Uri]$Url
     $canonicalUrl = $uri.GetLeftPart([System.UriPartial]::Path).TrimEnd('/')
     $raw = [System.IO.File]::ReadAllText($Path)
+    $newline = if ($raw.Contains("`r`n")) { "`r`n" } else { "`n" }
     $slugPattern = '<loc>https?://' +
         [regex]::Escape($uri.Authority) +
         [regex]::Escape($uri.AbsolutePath.TrimEnd('/')) +
@@ -234,14 +235,18 @@ function Add-SitemapUrl {
             "<loc>$canonicalUrl</loc>",
             [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
         )
+        $updated = [regex]::Replace(
+            $updated,
+            '\s*</urlset>',
+            "${newline}${newline}</urlset>"
+        )
         if ($updated -cne $raw) {
             Write-Utf8Text -Path $Path -Text $updated
         }
         return
     }
 
-    $newline = if ($raw.Contains("`r`n")) { "`r`n" } else { "`n" }
-    $entry = "<url>${newline}`t<loc>$canonicalUrl</loc>${newline}</url>${newline}"
+    $entry = "<url>${newline}`t<loc>$canonicalUrl</loc>${newline}</url>${newline}${newline}"
     if (-not $raw.Contains('</urlset>')) {
         throw "Invalid sitemap; missing </urlset>: $Path"
     }

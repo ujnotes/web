@@ -8,11 +8,15 @@ shopt -s extglob
 copy_dot_dirs() {
   local source_dir=$1
   local dest_dir=$2
+  local excluded_name=${3:-}
   
   shopt -s extglob
 
   cp -r $source_dir/* $dest_dir
   for dir in "$source_dir"/.!(.|git); do
+    if [ -n "$excluded_name" ] && [ "$(basename "$dir")" = "$excluded_name" ]; then
+      continue
+    fi
     if [ -d "$dir" ] || [ -f "$dir" ]; then
       cp -r "$dir" "$dest_dir"
     fi
@@ -43,5 +47,5 @@ find project/build/public -mindepth 1 -maxdepth 1 -exec mv {} "$PUBLIC_TEMP" \;
 echo "Operation complete. The following files and directories have been moved:"
 find "$TEMP_DIR" -mindepth 1 -maxdepth 2
 
-copy_dot_dirs site/project/interim project/build/interim
+copy_dot_dirs site/project/interim project/build/interim .js-source.sha256
 copy_dot_dirs site/project/public project/build/public

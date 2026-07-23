@@ -7,7 +7,7 @@
 
 ## Localhost - hosts file
 
-- local.wolo.codes - 127.0.0.1
+- local.ujnotes.com - 127.0.0.1
 
 ## Project stcuture
 

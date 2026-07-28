@@ -12,6 +12,11 @@ on:
         required: true
         default: true
         type: boolean
+      rerender_published:
+        description: Re-render an explicitly requested slug whose Notion status is published
+        required: true
+        default: false
+        type: boolean
   schedule:
     - cron: "*/15 * * * *"
 
@@ -94,13 +99,18 @@ jobs:
         shell: bash
         env:
           REQUESTED_SLUG: ${{ github.event_name == 'workflow_dispatch' && inputs.slug || '' }}
+          REQUESTED_STATUS: ${{ github.event_name == 'workflow_dispatch' && inputs.rerender_published && 'published' || 'publish' }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
         run: |
           set -euo pipefail
+          if [[ "$REQUESTED_STATUS" == "published" && -z "$REQUESTED_SLUG" ]]; then
+            echo "rerender_published requires an explicit slug" >&2
+            exit 1
+          fi
           mkdir -p "$BUNDLE_DIR"
           args=(
             publish
-            --status publish
+            --status "$REQUESTED_STATUS"
             --bundle-dir "$BUNDLE_DIR"
             --metadata-file "$METADATA_FILE"
           )

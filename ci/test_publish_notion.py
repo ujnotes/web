@@ -49,6 +49,7 @@ class PublicationMergeTests(unittest.TestCase):
             "</url></urlset>",
         )
         write(source / "Root/Resource/world/example/index.jpg", "cover")
+        write(source / "Root/Resource/World/Philosophy/Index.jpg", "parent-image")
 
         metadata = {
             "page_id": "page-1",
@@ -98,7 +99,8 @@ class PublicationMergeTests(unittest.TestCase):
 
             id_text = (source / "Config/ID.tsv").read_text(encoding="utf-8")
             self.assertIn("published\tabout", id_text)
-            self.assertIn("publish\tworld/example", id_text)
+            self.assertIn("published\tworld/example", id_text)
+            self.assertNotIn("\npublish\tworld/example", id_text)
             url_text = (source / "Config/Url.tsv").read_text(encoding="utf-8")
             self.assertIn("about/\tindex\tjpg", url_text)
             self.assertIn("world/example/\tindex\tjpg", url_text)
@@ -135,9 +137,32 @@ class PublicationMergeTests(unittest.TestCase):
             self.assertNotIn("about/\tindex\tjpg", url_text)
             self.assertNotIn("world/other/\tindex\tjpg", url_text)
             id_text = (stage / "Config/ID.tsv").read_text(encoding="utf-8")
-            self.assertIn("publish\tworld/example", id_text)
+            self.assertIn("published\tworld/example", id_text)
+            self.assertNotIn("\npublish\tworld/example", id_text)
             self.assertNotIn("published\tabout", id_text)
+            self.assertEqual(
+                "parent-image",
+                (
+                    stage / "Root/Resource/world/philosophy/index.jpg"
+                ).read_text(encoding="utf-8"),
+            )
 
+    def test_title_cased_article_cover_gets_lowercase_stage_alias(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            stage = Path(temp_dir) / "stage"
+            write(
+                stage / "Root/Resource/World/Philosophy/Hindu/Index.jpg",
+                "hindu-cover",
+            )
+
+            publish_notion.materialize_lowercase_resource_aliases(stage)
+
+            self.assertEqual(
+                "hindu-cover",
+                (
+                    stage / "Root/Resource/world/philosophy/hindu/index.jpg"
+                ).read_text(encoding="utf-8"),
+            )
     def test_php_diagnostic_artifact_is_rejected(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             bundle, source, public_repo, metadata_path = self.make_fixture(temp_dir)

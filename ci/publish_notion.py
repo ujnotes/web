@@ -67,6 +67,23 @@ def write_lines(path, lines):
     Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
 
 
+def materialize_lowercase_resource_aliases(stage):
+    resource_root = Path(stage) / "Root" / "Resource"
+    if not resource_root.is_dir():
+        return
+    files = [path for path in resource_root.rglob("*") if path.is_file()]
+    for source in files:
+        relative = source.relative_to(resource_root)
+        lowercase_relative = Path(*(part.lower() for part in relative.parts))
+        if lowercase_relative == relative:
+            continue
+        target = resource_root / lowercase_relative
+        if target.exists():
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+
+
 def find_article_row(path, slug):
     lines = read_lines(path)
     if not lines:
@@ -78,13 +95,17 @@ def find_article_row(path, slug):
     raise RuntimeError(f"No generated ID row for {slug!r} in {path}")
 
 
-def merge_id_row(path, slug, new_row):
+def merge_id_row(path, slug, new_row, status=None):
     lines = read_lines(path)
     if not lines:
         raise RuntimeError(f"ID file is empty: {path}")
     header = lines[0].split("\t")
     fields = new_row.split("\t")
     fields.extend([""] * (len(header) - len(fields)))
+    if status is not None:
+        if "Status" not in header:
+            raise RuntimeError(f"ID file has no Status column: {path}")
+        fields[header.index("Status")] = status
     if "Type" in header:
         fields[header.index("Type")] = "article"
     new_row = "\t".join(fields[: len(header)])
@@ -170,7 +191,10 @@ def prepare_source(args):
     bundle_id = safe_target(bundle, Path("Config", f"ID{suffix}.tsv"))
     source_id = safe_target(source, Path("Config", f"ID{suffix}.tsv"))
     _, generated_row = find_article_row(bundle_id, slug)
-    merged_row = merge_id_row(source_id, slug, generated_row)
+    # NCMS renders queued pages with Status=publish. The source repository is
+    # the durable post-publication state, so never commit that transient status:
+    # navigation only exposes rows marked published.
+    merged_row = merge_id_row(source_id, slug, generated_row, status="published")
     source_url = safe_target(source, Path("Config", f"Url{suffix}.tsv"))
     merge_url_row(source_url, slug, has_cover)
 
@@ -204,6 +228,10 @@ def create_stage(args):
     )
     (stage / "public").mkdir()
     (stage / "interim").mkdir()
+    # Component IDs are lowercase, while historical resource paths use title
+    # case. GitHub Actions renders on Linux, so provide case-correct temporary
+    # aliases for image discovery without renaming the source asset tree.
+    materialize_lowercase_resource_aliases(stage)
 
     source_id = safe_target(stage, metadata["source_id"])
     id_header = read_lines(source_id)[0]

@@ -1,3 +1,4 @@
 nginx/conf/
 build/
 gclosure/
+ci/**/__pycache__/

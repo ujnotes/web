@@ -146,6 +146,12 @@ class PublicationMergeTests(unittest.TestCase):
                     stage / "Root/Resource/world/philosophy/index.jpg"
                 ).read_text(encoding="utf-8"),
             )
+            self.assertEqual(
+                "parent-image",
+                (
+                    source / "Root/Resource/world/philosophy/index.jpg"
+                ).read_text(encoding="utf-8"),
+            )
 
     def test_title_cased_article_cover_gets_lowercase_stage_alias(self):
         with tempfile.TemporaryDirectory() as temp_dir:

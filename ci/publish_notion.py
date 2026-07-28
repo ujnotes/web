@@ -221,6 +221,10 @@ def create_stage(args):
     if stage.exists():
         shutil.rmtree(stage)
 
+    # Apache serves the source checkout while Tiggu writes into the isolated
+    # stage. Make legacy title-cased resources addressable by lowercase article
+    # URLs in the source first; copytree then carries the same aliases to stage.
+    materialize_lowercase_resource_aliases(source)
     shutil.copytree(
         source,
         stage,
@@ -228,10 +232,6 @@ def create_stage(args):
     )
     (stage / "public").mkdir()
     (stage / "interim").mkdir()
-    # Component IDs are lowercase, while historical resource paths use title
-    # case. GitHub Actions renders on Linux, so provide case-correct temporary
-    # aliases for image discovery without renaming the source asset tree.
-    materialize_lowercase_resource_aliases(stage)
 
     source_id = safe_target(stage, metadata["source_id"])
     id_header = read_lines(source_id)[0]

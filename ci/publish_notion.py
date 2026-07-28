@@ -67,21 +67,60 @@ def write_lines(path, lines):
     Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
 
 
-def materialize_lowercase_resource_aliases(stage):
-    resource_root = Path(stage) / "Root" / "Resource"
-    if not resource_root.is_dir():
-        return
-    files = [path for path in resource_root.rglob("*") if path.is_file()]
-    for source in files:
-        relative = source.relative_to(resource_root)
-        lowercase_relative = Path(*(part.lower() for part in relative.parts))
-        if lowercase_relative == relative:
-            continue
-        target = resource_root / lowercase_relative
-        if target.exists():
-            continue
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, target)
+def resolve_case_insensitive(root, relative):
+    """Resolve a relative path without changing or duplicating the source tree."""
+    root = Path(root).resolve()
+    current = root
+    for requested_part in Path(relative).parts:
+        if not current.is_dir():
+            return None
+        matches = [
+            child
+            for child in current.iterdir()
+            if child.name.casefold() == requested_part.casefold()
+        ]
+        if not matches:
+            return None
+        if len(matches) > 1:
+            raise RuntimeError(
+                f"Ambiguous case-insensitive path below {current}: {requested_part}"
+            )
+        current = matches[0]
+    return current
+
+
+def parent_slug(slug):
+    if slug == "root":
+        return None
+    if "/" not in slug:
+        return "root"
+    return slug.rsplit("/", 1)[0]
+
+
+def affected_navigation_slugs(path, slug):
+    """Return the article, its ancestors, and adjacent siblings."""
+    rows = []
+    for line in read_lines(path)[1:]:
+        fields = line.split("\t")
+        if len(fields) >= 2 and fields[0] == "published":
+            rows.append(fields[1])
+
+    affected = {slug}
+    current = parent_slug(slug)
+    while current:
+        affected.add(current)
+        current = parent_slug(current)
+
+    article_parent = parent_slug(slug)
+    siblings = [row_slug for row_slug in rows if parent_slug(row_slug) == article_parent]
+    if slug in siblings:
+        index = siblings.index(slug)
+        if index:
+            affected.add(siblings[index - 1])
+        if index + 1 < len(siblings):
+            affected.add(siblings[index + 1])
+
+    return [row_slug for row_slug in rows if row_slug in affected]
 
 
 def find_article_row(path, slug):
@@ -175,10 +214,12 @@ def prepare_source(args):
     source_component.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(generated_component, source_component)
 
-    cover = safe_target(source, Path("Root", "Resource", *slug.split("/"), "index.jpg"))
+    cover_relative = Path("Root", "Resource", *slug.split("/"), "index.jpg")
+    cover = resolve_case_insensitive(source, cover_relative)
     component_text = source_component.read_text(encoding="utf-8")
-    has_cover = cover.is_file() or "Component_cover.php" in component_text
-    if cover.is_file() and "Component_cover.php" not in component_text:
+    cover_is_file = cover is not None and cover.is_file()
+    has_cover = cover_is_file or "Component_cover.php" in component_text
+    if cover_is_file and "Component_cover.php" not in component_text:
         alt = metadata.get("title", "").replace("\\", "\\\\").replace("'", "\\'")
         markup = f"<?php $alt='{alt}'; require('../HTML/Fragment/Component_cover.php') ?>"
         source_component.write_text(
@@ -200,15 +241,20 @@ def prepare_source(args):
 
     source_sitemap = safe_target(source, Path("Root", "Site", "SiteMap.xml"))
     add_sitemap_url(source_sitemap, f"{args.base_url.rstrip('/')}/{slug}")
+    affected_slugs = affected_navigation_slugs(source_id, slug)
 
     metadata.update(
         {
             "has_cover": has_cover,
+            "source_cover": (
+                cover.relative_to(source).as_posix() if cover_is_file else None
+            ),
             "source_component": source_component.relative_to(source).as_posix(),
             "source_id": source_id.relative_to(source).as_posix(),
             "source_url": source_url.relative_to(source).as_posix(),
             "source_sitemap": source_sitemap.relative_to(source).as_posix(),
             "article_row": merged_row,
+            "affected_slugs": affected_slugs,
         }
     )
     write_metadata(metadata_path, metadata)
@@ -221,10 +267,6 @@ def create_stage(args):
     if stage.exists():
         shutil.rmtree(stage)
 
-    # Apache serves the source checkout while Tiggu writes into the isolated
-    # stage. Make legacy title-cased resources addressable by lowercase article
-    # URLs in the source first; copytree then carries the same aliases to stage.
-    materialize_lowercase_resource_aliases(source)
     shutil.copytree(
         source,
         stage,
@@ -232,10 +274,6 @@ def create_stage(args):
     )
     (stage / "public").mkdir()
     (stage / "interim").mkdir()
-
-    source_id = safe_target(stage, metadata["source_id"])
-    id_header = read_lines(source_id)[0]
-    write_lines(source_id, [id_header, metadata["article_row"]])
 
     source_url = safe_target(stage, metadata["source_url"])
     url_header = read_lines(source_url)[0]
@@ -247,6 +285,16 @@ def create_stage(args):
         if row_path == metadata["slug"] or (not row_path and is_script):
             url_lines.append(line)
     write_lines(source_url, url_lines)
+
+    # A cover may use legacy title casing in the source repository. Place it
+    # directly at its public build destination; do not create a source alias.
+    if metadata.get("source_cover"):
+        source_cover = safe_target(source, metadata["source_cover"])
+        staged_cover = safe_target(
+            stage, Path("public", *metadata["slug"].split("/"), "index.jpg")
+        )
+        staged_cover.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_cover, staged_cover)
 
 
 def merge_firebase(path, slug, has_cover):
@@ -299,23 +347,69 @@ def validate_rendered_artifact(path):
     if PHP_DIAGNOSTIC.search(visible_text):
         raise RuntimeError(f"Rendered artifact contains PHP diagnostic: {path}")
 
+
+def rendered_page_paths(root, slug):
+    root = Path(root)
+    if slug == "root":
+        candidates = [(root / "index.html", root / "root.json")]
+    else:
+        relative = Path(*slug.split("/"))
+        candidates = [
+            (root / relative / "index.html", root / relative / "index.json"),
+            (root / f"{relative}.html", root / f"{relative}.json"),
+        ]
+    for html_path, json_path in candidates:
+        if html_path.is_file() and json_path.is_file():
+            return html_path, json_path
+    raise RuntimeError(f"Rendered affected page is missing for {slug!r}")
+
+
+def public_page_paths(root, slug, stage_html, stage_json):
+    root = Path(root)
+    if slug == "root":
+        return root / "index.html", root / "root.json"
+    relative = Path(*slug.split("/"))
+    if stage_html.name == "index.html":
+        return root / relative / "index.html", root / relative / "index.json"
+    return root / f"{relative}.html", root / f"{relative}.json"
+
+
 def publish_artifacts(args):
     metadata_path, metadata = read_metadata(args.metadata)
     slug = metadata["slug"]
     stage = Path(args.stage).resolve()
     public_repo = Path(args.public_repo).resolve()
-    stage_target = safe_target(stage, Path("public", *slug.split("/")))
-    public_target = safe_target(public_repo, Path("public", *slug.split("/")))
+    stage_public = stage / "public"
+    public_root = public_repo / "public"
+    public_paths = ["firebase.json", "public/sitemap.xml"]
+    article_json = None
 
-    stage_html = stage_target / "index.html"
-    stage_json = stage_target / "index.json"
-    for artifact in (stage_html, stage_json):
-        if not artifact.is_file() or artifact.stat().st_size == 0:
-            raise RuntimeError(f"Required build artifact is missing or empty: {artifact}")
-        validate_rendered_artifact(artifact)
+    for affected_slug in metadata.get("affected_slugs", [slug]):
+        stage_html, stage_json = rendered_page_paths(stage_public, affected_slug)
+        for artifact in (stage_html, stage_json):
+            if artifact.stat().st_size == 0:
+                raise RuntimeError(f"Required build artifact is empty: {artifact}")
+            validate_rendered_artifact(artifact)
 
+        public_html, public_json = public_page_paths(
+            public_root, affected_slug, stage_html, stage_json
+        )
+        public_html.parent.mkdir(parents=True, exist_ok=True)
+        public_json.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(stage_html, public_html)
+        shutil.copy2(stage_json, public_json)
+        public_paths.extend(
+            [
+                public_html.relative_to(public_repo).as_posix(),
+                public_json.relative_to(public_repo).as_posix(),
+            ]
+        )
+        if affected_slug == slug:
+            article_json = stage_json
 
-    with stage_json.open(encoding="utf-8") as source:
+    if article_json is None:
+        raise RuntimeError(f"Published article was not in affected pages: {slug}")
+    with article_json.open(encoding="utf-8") as source:
         built_json = json.load(source)
     if str(built_json.get("desc", "")) != str(metadata.get("description", "")):
         raise RuntimeError("Built JSON description does not match Notion")
@@ -326,29 +420,24 @@ def publish_artifacts(args):
                 f"Built article links to queued unpublished page {queued_slug!r}"
             )
 
-    public_target.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(stage_html, public_target / "index.html")
-    shutil.copy2(stage_json, public_target / "index.json")
-    stage_jpg = stage_target / "index.jpg"
+    stage_jpg = safe_target(stage, Path("public", *slug.split("/"), "index.jpg"))
     if metadata["has_cover"]:
         if not stage_jpg.is_file() or stage_jpg.stat().st_size == 0:
             raise RuntimeError(f"Expected cover artifact is missing: {stage_jpg}")
-        shutil.copy2(stage_jpg, public_target / "index.jpg")
+        public_jpg = safe_target(
+            public_repo, Path("public", *slug.split("/"), "index.jpg")
+        )
+        public_jpg.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(stage_jpg, public_jpg)
+        public_paths.append(public_jpg.relative_to(public_repo).as_posix())
 
     firebase_path = public_repo / "firebase.json"
     merge_firebase(firebase_path, slug, metadata["has_cover"])
     public_sitemap = public_repo / "public" / "sitemap.xml"
     add_sitemap_url(public_sitemap, f"{args.base_url.rstrip('/')}/{slug}")
 
-    metadata["public_paths"] = [
-        "firebase.json",
-        "public/sitemap.xml",
-        f"public/{slug}/index.html",
-        f"public/{slug}/index.json",
-    ]
-    if metadata["has_cover"]:
-        metadata["public_paths"].append(f"public/{slug}/index.jpg")
-    metadata["json_sha256"] = hashlib.sha256(stage_json.read_bytes()).hexdigest()
+    metadata["public_paths"] = list(dict.fromkeys(public_paths))
+    metadata["json_sha256"] = hashlib.sha256(article_json.read_bytes()).hexdigest()
     write_metadata(metadata_path, metadata)
 
 

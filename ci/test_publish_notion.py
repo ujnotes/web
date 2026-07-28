@@ -110,7 +110,7 @@ class PublicationMergeTests(unittest.TestCase):
             self.assertIn("https://ujnotes.com/about", sitemap)
             self.assertIn("https://ujnotes.com/world/example", sitemap)
 
-    def test_stage_keeps_script_url_and_selected_article_only(self):
+    def test_stage_keeps_full_navigation_context_and_selected_urls(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             bundle, source, _, metadata_path = self.make_fixture(temp_dir)
             publish_notion.prepare_source(
@@ -139,7 +139,7 @@ class PublicationMergeTests(unittest.TestCase):
             id_text = (stage / "Config/ID.tsv").read_text(encoding="utf-8")
             self.assertIn("published\tworld/example", id_text)
             self.assertNotIn("\npublish\tworld/example", id_text)
-            self.assertNotIn("published\tabout", id_text)
+            self.assertIn("published\tabout", id_text)
             self.assertEqual(
                 "parent-image",
                 (
@@ -153,22 +153,53 @@ class PublicationMergeTests(unittest.TestCase):
                 ).read_text(encoding="utf-8"),
             )
 
-    def test_title_cased_article_cover_gets_lowercase_stage_alias(self):
+    def test_title_cased_cover_is_resolved_without_source_alias(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            stage = Path(temp_dir) / "stage"
-            write(
-                stage / "Root/Resource/World/Philosophy/Hindu/Index.jpg",
-                "hindu-cover",
-            )
+            source = Path(temp_dir) / "source"
+            title_cased = source / "Root/Resource/World/Philosophy/Hindu/Index.jpg"
+            write(title_cased, "hindu-cover")
 
-            publish_notion.materialize_lowercase_resource_aliases(stage)
+            resolved = publish_notion.resolve_case_insensitive(
+                source, "Root/Resource/world/philosophy/hindu/index.jpg"
+            )
 
             self.assertEqual(
-                "hindu-cover",
-                (
-                    stage / "Root/Resource/world/philosophy/hindu/index.jpg"
-                ).read_text(encoding="utf-8"),
+                ("Root", "Resource", "World", "Philosophy", "Hindu", "Index.jpg"),
+                resolved.relative_to(source).parts,
             )
+            self.assertEqual(1, len(list((source / "Root/Resource").rglob("*.*"))))
+
+    def test_affected_navigation_includes_ancestors_and_adjacent_siblings(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            id_path = Path(temp_dir) / "ID.tsv"
+            write(
+                id_path,
+                "Status\tId\n"
+                "published\troot\n"
+                "published\tworld\n"
+                "published\tworld/philosophy\n"
+                "published\tworld/philosophy/previous\n"
+                "published\tworld/philosophy/hindu\n"
+                "published\tworld/philosophy/next\n"
+                "published\tcomputer\n",
+            )
+
+            affected = publish_notion.affected_navigation_slugs(
+                id_path, "world/philosophy/hindu"
+            )
+
+            self.assertEqual(
+                [
+                    "root",
+                    "world",
+                    "world/philosophy",
+                    "world/philosophy/previous",
+                    "world/philosophy/hindu",
+                    "world/philosophy/next",
+                ],
+                affected,
+            )
+
     def test_php_diagnostic_artifact_is_rejected(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             bundle, source, public_repo, metadata_path = self.make_fixture(temp_dir)
@@ -247,6 +278,50 @@ class PublicationMergeTests(unittest.TestCase):
             )
             metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
             self.assertEqual(64, len(metadata["json_sha256"]))
+
+    def test_publication_copies_affected_ancestor_pages(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            bundle, source, public_repo, metadata_path = self.make_fixture(temp_dir)
+            publish_notion.prepare_source(
+                SimpleNamespace(
+                    bundle=str(bundle),
+                    metadata=str(metadata_path),
+                    source=str(source),
+                    base_url="https://ujnotes.com",
+                )
+            )
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            metadata["affected_slugs"] = ["root", "world", "world/example"]
+            write(metadata_path, json.dumps(metadata))
+
+            stage = Path(temp_dir) / "stage"
+            write(stage / "public/index.html", "<html>Root</html>")
+            write(stage / "public/root.json", json.dumps({"content": "Root"}))
+            write(stage / "public/world/index.html", "<html>World</html>")
+            write(stage / "public/world/index.json", json.dumps({"content": "World"}))
+            write(stage / "public/world/example/index.html", "<html>Example</html>")
+            write(
+                stage / "public/world/example/index.json",
+                json.dumps({"desc": "Description", "content": "Example"}),
+            )
+            write(stage / "public/world/example/index.jpg", "cover")
+
+            publish_notion.publish_artifacts(
+                SimpleNamespace(
+                    metadata=str(metadata_path),
+                    stage=str(stage),
+                    public_repo=str(public_repo),
+                    base_url="https://ujnotes.com",
+                )
+            )
+
+            self.assertTrue((public_repo / "public/index.html").is_file())
+            self.assertTrue((public_repo / "public/root.json").is_file())
+            self.assertTrue((public_repo / "public/world/index.html").is_file())
+            self.assertTrue((public_repo / "public/world/index.json").is_file())
+            published = json.loads(metadata_path.read_text(encoding="utf-8"))
+            self.assertIn("public/world/index.html", published["public_paths"])
+            self.assertIn("public/world/index.json", published["public_paths"])
 
     def test_conflicting_shortcut_is_rejected(self):
         with tempfile.TemporaryDirectory() as temp_dir:

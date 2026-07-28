@@ -138,6 +138,37 @@ class PublicationMergeTests(unittest.TestCase):
             self.assertIn("publish\tworld/example", id_text)
             self.assertNotIn("published\tabout", id_text)
 
+    def test_php_diagnostic_artifact_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            bundle, source, public_repo, metadata_path = self.make_fixture(temp_dir)
+            publish_notion.prepare_source(
+                SimpleNamespace(
+                    bundle=str(bundle),
+                    metadata=str(metadata_path),
+                    source=str(source),
+                    base_url="https://ujnotes.com",
+                )
+            )
+            stage = Path(temp_dir) / "stage"
+            write(
+                stage / "public/world/example/index.html",
+                "<b>Warning</b>: file_get_contents failed in /app/page.php on line 3",
+            )
+            write(
+                stage / "public/world/example/index.json",
+                json.dumps({"desc": "Description", "content": "Example"}),
+            )
+
+            with self.assertRaisesRegex(RuntimeError, "PHP diagnostic"):
+                publish_notion.publish_artifacts(
+                    SimpleNamespace(
+                        metadata=str(metadata_path),
+                        stage=str(stage),
+                        public_repo=str(public_repo),
+                        base_url="https://ujnotes.com",
+                    )
+                )
+
     def test_public_merge_preserves_firebase_configuration(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             bundle, source, public_repo, metadata_path = self.make_fixture(temp_dir)

@@ -15,6 +15,10 @@ from pathlib import Path
 
 
 SAFE_SLUG = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_./-]*$")
+PHP_DIAGNOSTIC = re.compile(
+    r"\b(?:PHP\s+)?(?:warning|fatal error|parse error|notice|deprecated)\s*:",
+    re.IGNORECASE,
+)
 
 
 def validate_slug(slug):
@@ -261,6 +265,12 @@ def merge_firebase(path, slug, has_cover):
         target.write("\n")
 
 
+def validate_rendered_artifact(path):
+    text = Path(path).read_text(encoding="utf-8", errors="replace")
+    visible_text = re.sub(r"<[^>]*>", " ", text)
+    if PHP_DIAGNOSTIC.search(visible_text):
+        raise RuntimeError(f"Rendered artifact contains PHP diagnostic: {path}")
+
 def publish_artifacts(args):
     metadata_path, metadata = read_metadata(args.metadata)
     slug = metadata["slug"]
@@ -274,6 +284,8 @@ def publish_artifacts(args):
     for artifact in (stage_html, stage_json):
         if not artifact.is_file() or artifact.stat().st_size == 0:
             raise RuntimeError(f"Required build artifact is missing or empty: {artifact}")
+        validate_rendered_artifact(artifact)
+
 
     with stage_json.open(encoding="utf-8") as source:
         built_json = json.load(source)

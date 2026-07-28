@@ -37,7 +37,11 @@ class PublicationMergeTests(unittest.TestCase):
         )
         write(
             source / "Config/Url.tsv",
-            "Path\tName\tExtension\nabout/\tindex\tjpg\n",
+            "Path\tName\tExtension\n"
+            "\tscript\tjs\n"
+            "\tstyle\tcss\n"
+            "about/\tindex\tjpg\n"
+            "world/other/\tindex\tjpg\n",
         )
         write(
             source / "Root/Site/SiteMap.xml",
@@ -103,6 +107,36 @@ class PublicationMergeTests(unittest.TestCase):
             sitemap = (source / "Root/Site/SiteMap.xml").read_text(encoding="utf-8")
             self.assertIn("https://ujnotes.com/about", sitemap)
             self.assertIn("https://ujnotes.com/world/example", sitemap)
+
+    def test_stage_keeps_script_url_and_selected_article_only(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            bundle, source, _, metadata_path = self.make_fixture(temp_dir)
+            publish_notion.prepare_source(
+                SimpleNamespace(
+                    bundle=str(bundle),
+                    metadata=str(metadata_path),
+                    source=str(source),
+                    base_url="https://ujnotes.com",
+                )
+            )
+            stage = Path(temp_dir) / "stage"
+            publish_notion.create_stage(
+                SimpleNamespace(
+                    metadata=str(metadata_path),
+                    source=str(source),
+                    stage=str(stage),
+                )
+            )
+
+            url_text = (stage / "Config/Url.tsv").read_text(encoding="utf-8")
+            self.assertIn("\tscript\tjs", url_text)
+            self.assertNotIn("\tstyle\tcss", url_text)
+            self.assertIn("world/example/\tindex\tjpg", url_text)
+            self.assertNotIn("about/\tindex\tjpg", url_text)
+            self.assertNotIn("world/other/\tindex\tjpg", url_text)
+            id_text = (stage / "Config/ID.tsv").read_text(encoding="utf-8")
+            self.assertIn("publish\tworld/example", id_text)
+            self.assertNotIn("published\tabout", id_text)
 
     def test_public_merge_preserves_firebase_configuration(self):
         with tempfile.TemporaryDirectory() as temp_dir:

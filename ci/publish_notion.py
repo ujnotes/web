@@ -208,8 +208,12 @@ def create_stage(args):
     source_url = safe_target(stage, metadata["source_url"])
     url_header = read_lines(source_url)[0]
     url_lines = [url_header]
-    if metadata["has_cover"]:
-        url_lines.append(f"{metadata['slug']}/\tindex\tjpg")
+    for line in read_lines(source_url)[1:]:
+        fields = line.split("\t")
+        row_path = fields[0].replace("\\", "/").rstrip("/")
+        is_script = len(fields) >= 3 and fields[1:3] == ["script", "js"]
+        if row_path == metadata["slug"] or (not row_path and is_script):
+            url_lines.append(line)
     write_lines(source_url, url_lines)
 
 

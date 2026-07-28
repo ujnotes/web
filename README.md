@@ -7,7 +7,7 @@
 
 ## Localhost - hosts file
 
-- local.ujnotes.com - 127.0.0.1
+- ujnotes.local - 127.0.0.1
 
 ## Project stcuture
 
@@ -42,7 +42,7 @@ distinguished_name = req_distinguished_name
 prompt = no
 
 [req_distinguished_name]
-CN = local.ujnotes.com
+CN = ujnotes.local
 ```
 
 Generate self-signed certificate
@@ -51,7 +51,7 @@ openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout server.key -out serv
 ```
 
 You may also want to add this to your trusted-root CA store  
-\- so that you are not presented with the *insecure origin* message when navigating to `local.ujnotes.com`
+\- so that you are not presented with the *insecure origin* message when navigating to `ujnotes.local`
 
 
 ## Manage

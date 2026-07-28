@@ -11,6 +11,7 @@ services:
       - ..:/app
     build: ../site/project
     extra_hosts:
+      - "local.ujnotes.com:127.0.0.1"
       - "local.cutie.codes:127.0.0.1"
       - "interim.cutie.codes:127.0.0.1"
       - "public.cutie.codes:127.0.0.1"

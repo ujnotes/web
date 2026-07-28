@@ -89,3 +89,35 @@ clone_repo "tiggu" "https://github.com/blank-org/tiggu.git"
 ```
 
 - Then build and run docker for `web/project`
+
+## Notion publication workflow
+
+`.github/workflows/publish-notion.yml` polls the production Notion database every
+15 minutes and can also be started manually. A scheduled run is a successful no-op
+when there are no queued pages. It refuses to choose between multiple
+`Status=publish` pages; use the manual `slug` input to select one explicitly.
+
+Manual runs default to `dry_run=true`. A dry run fetches through NCMS, renders the
+article with Cutie/Tiggu, validates the generated files, and uploads an artifact.
+It does not push either website repository or change Notion.
+
+The `prod` GitHub environment must define:
+
+- Variable `NOTION_DATABASE_ID`
+- Repository or environment secret `NOTION_API_KEY`
+- Repository or environment secret `UJNOTES_PUBLISH_TOKEN`
+
+The publish token needs read access to `ujnotes/web`, `ujnotes/web-site`, and
+`ujnotes/web-public`. It needs Contents write access to `ujnotes/web-site` and
+`ujnotes/web-public`. NCMS and Tiggu are checked out without the token.
+
+The guarded lifecycle is:
+
+1. NCMS renders exactly one page into an isolated bundle with git and Notion
+   mutations disabled.
+2. The workflow merges that article into `web-site`, builds it, and validates the
+   generated HTML, JSON, optional cover, Firebase configuration, and sitemap.
+3. Source and public artifacts are committed with explicit path allowlists.
+4. The existing `web-public` push workflow deploys Firebase Hosting.
+5. The workflow waits until the live JSON SHA-256 matches the generated file.
+6. NCMS changes the Notion page from `publish` to `published`.

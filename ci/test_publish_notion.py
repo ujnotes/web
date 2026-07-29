@@ -412,6 +412,23 @@ class PublicationMergeTests(unittest.TestCase):
                     firebase_path, "world/example", has_cover=False
                 )
 
+    def test_renderer_mounts_normalized_stage(self):
+        project = Path(__file__).resolve().parents[1]
+        compose = (project / "compose-dev.yaml").read_text(encoding="utf-8")
+        workflow = (
+            project / ".github/workflows/publish-notion.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "source: ${SITE_PROJECT_DIR:-../site/project}", compose
+        )
+        self.assertIn("target: /app/site/project", compose)
+        self.assertIn(
+            "SITE_PROJECT_DIR: ${{ github.workspace }}/.ncms-publish/site",
+            workflow,
+        )
+        self.assertIn('ln -s Root "$STAGE_DIR/root"', workflow)
+
 
 if __name__ == "__main__":
     unittest.main()

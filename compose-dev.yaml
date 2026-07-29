@@ -9,6 +9,9 @@ services:
         source: /var/run/docker.sock
         target: /var/run/docker.sock
       - ..:/app
+      - type: bind
+        source: ${SITE_PROJECT_DIR:-../site/project}
+        target: /app/site/project
     build: ../site/project
     extra_hosts:
       - "ujnotes.local:127.0.0.1"

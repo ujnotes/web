@@ -41,6 +41,7 @@ jobs:
       BUNDLE_DIR: ${{ github.workspace }}/.ncms-publish/bundle
       METADATA_FILE: ${{ github.workspace }}/.ncms-publish/article.json
       STAGE_DIR: ${{ github.workspace }}/.ncms-publish/site
+      SITE_PROJECT_DIR: ${{ github.workspace }}/.ncms-publish/site
 
     steps:
       - name: Validate production configuration
@@ -147,6 +148,9 @@ jobs:
 
           if [[ ! -e site/project/root ]]; then
             ln -s Root site/project/root
+          fi
+          if [[ ! -e "$STAGE_DIR/root" ]]; then
+            ln -s Root "$STAGE_DIR/root"
           fi
 
       - name: Start Cutie renderer

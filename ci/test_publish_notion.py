@@ -110,7 +110,7 @@ class PublicationMergeTests(unittest.TestCase):
             self.assertIn("https://ujnotes.com/about", sitemap)
             self.assertIn("https://ujnotes.com/world/example", sitemap)
 
-    def test_stage_keeps_full_navigation_context_and_selected_urls(self):
+    def test_stage_renders_only_affected_pages_and_selected_urls(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             bundle, source, _, metadata_path = self.make_fixture(temp_dir)
             publish_notion.prepare_source(
@@ -139,18 +139,50 @@ class PublicationMergeTests(unittest.TestCase):
             id_text = (stage / "Config/ID.tsv").read_text(encoding="utf-8")
             self.assertIn("published\tworld/example", id_text)
             self.assertNotIn("\npublish\tworld/example", id_text)
-            self.assertIn("published\tabout", id_text)
+            self.assertNotIn("published\tabout", id_text)
             self.assertEqual(
                 "parent-image",
                 (
-                    stage / "Root/Resource/world/philosophy/index.jpg"
+                    stage / "Root/Resource/World/Philosophy/Index.jpg"
                 ).read_text(encoding="utf-8"),
             )
             self.assertEqual(
                 "parent-image",
                 (
-                    source / "Root/Resource/world/philosophy/index.jpg"
+                    source / "Root/Resource/World/Philosophy/Index.jpg"
                 ).read_text(encoding="utf-8"),
+            )
+
+    def test_legacy_title_cased_component_is_available_at_requested_stage_path(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            stage = Path(temp_dir) / "stage"
+            legacy = stage / "Root/HTML/Component/World/Philosophy/index.php"
+            root_component = stage / "Root/HTML/Component/Root.php"
+            write(legacy, "<?php echo 'Philosophy'; ?>")
+            write(root_component, "<?php echo 'Root'; ?>")
+
+            materialized = publish_notion.materialize_component_alias(
+                stage, "world/philosophy"
+            )
+            materialized_root = publish_notion.materialize_component_alias(
+                stage, "root"
+            )
+
+            requested = (
+                stage / "Root/HTML/Component/world/philosophy/index.php"
+            )
+            requested_root = stage / "Root/HTML/Component/root.php"
+            self.assertEqual(requested, materialized)
+            self.assertEqual(requested_root, materialized_root)
+            self.assertTrue(requested.is_file())
+            self.assertTrue(requested_root.is_file())
+            self.assertEqual(
+                "<?php echo 'Philosophy'; ?>",
+                requested.read_text(encoding="utf-8"),
+            )
+            self.assertEqual(
+                "<?php echo 'Root'; ?>",
+                requested_root.read_text(encoding="utf-8"),
             )
 
     def test_title_cased_cover_is_resolved_without_source_alias(self):

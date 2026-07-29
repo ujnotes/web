@@ -122,6 +122,9 @@ class PublicationMergeTests(unittest.TestCase):
                     base_url="https://ujnotes.com",
                 )
             )
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            metadata["affected_slugs"] = ["root", "world", "world/example"]
+            write(metadata_path, json.dumps(metadata))
             stage = Path(temp_dir) / "stage"
             publish_notion.create_stage(
                 SimpleNamespace(
@@ -140,7 +143,13 @@ class PublicationMergeTests(unittest.TestCase):
             id_text = (stage / "Config/ID.tsv").read_text(encoding="utf-8")
             self.assertIn("published\tworld/example", id_text)
             self.assertNotIn("\npublish\tworld/example", id_text)
-            self.assertNotIn("published\tabout", id_text)
+            self.assertIn("published\tabout", id_text)
+            self.assertEqual(
+                ["root", "world", "world/example"],
+                (stage / "Config/Render.lsv")
+                .read_text(encoding="utf-8")
+                .splitlines(),
+            )
             self.assertEqual(
                 "parent-image",
                 (

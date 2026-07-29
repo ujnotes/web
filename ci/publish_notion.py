@@ -343,15 +343,15 @@ def create_stage(args):
     normalize_tree_lowercase(stage / "Root" / "HTML" / "Component")
     normalize_tree_lowercase(stage / "Root" / "Resource")
 
+    # Templates need the complete ID catalog for navigation. The per-run render
+    # scope belongs in a separate manifest so unrelated published rows stay visible.
     source_id = safe_target(stage, metadata["source_id"])
-    id_lines = read_lines(source_id)
-    affected = set(metadata.get("affected_slugs", [metadata["slug"]]))
-    selected_id_lines = [id_lines[0]]
-    for line in id_lines[1:]:
-        fields = line.split("\t")
-        if len(fields) >= 2 and fields[1] in affected:
-            selected_id_lines.append(line)
-    write_lines(source_id, selected_id_lines)
+    read_lines(source_id)
+    render_list = safe_target(stage, Path("Config", "Render.lsv"))
+    write_lines(
+        render_list,
+        metadata.get("affected_slugs", [metadata["slug"]]),
+    )
 
     # A cover may use legacy title casing in the source repository. Place it
     # directly at its public build destination before selecting download URLs.

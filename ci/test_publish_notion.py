@@ -273,6 +273,83 @@ class PublicationMergeTests(unittest.TestCase):
                 affected,
             )
 
+    def test_queued_link_to_existing_public_page_is_allowed(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            bundle, source, public_repo, metadata_path = self.make_fixture(temp_dir)
+            publish_notion.prepare_source(
+                SimpleNamespace(
+                    bundle=str(bundle),
+                    metadata=str(metadata_path),
+                    source=str(source),
+                    base_url="https://ujnotes.com",
+                )
+            )
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            metadata["queued_slugs"] = ["world/example", "world/philosophy/cognition"]
+            write(metadata_path, json.dumps(metadata))
+            write(
+                public_repo / "public/world/philosophy/cognition/index.html",
+                "Cognition",
+            )
+            stage = Path(temp_dir) / "stage"
+            write(stage / "public/world/example/index.html", "Example")
+            write(
+                stage / "public/world/example/index.json",
+                json.dumps(
+                    {
+                        "desc": "Description",
+                        "content": "Read /world/philosophy/cognition next",
+                    }
+                ),
+            )
+            write(stage / "public/world/example/index.jpg", "cover")
+
+            publish_notion.publish_artifacts(
+                SimpleNamespace(
+                    metadata=str(metadata_path),
+                    stage=str(stage),
+                    public_repo=str(public_repo),
+                    base_url="https://ujnotes.com",
+                )
+            )
+
+    def test_queued_link_to_missing_public_page_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            bundle, source, public_repo, metadata_path = self.make_fixture(temp_dir)
+            publish_notion.prepare_source(
+                SimpleNamespace(
+                    bundle=str(bundle),
+                    metadata=str(metadata_path),
+                    source=str(source),
+                    base_url="https://ujnotes.com",
+                )
+            )
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            metadata["queued_slugs"] = ["world/example", "world/philosophy/cognition"]
+            write(metadata_path, json.dumps(metadata))
+            stage = Path(temp_dir) / "stage"
+            write(stage / "public/world/example/index.html", "Example")
+            write(
+                stage / "public/world/example/index.json",
+                json.dumps(
+                    {
+                        "desc": "Description",
+                        "content": "Read /world/philosophy/cognition next",
+                    }
+                ),
+            )
+            write(stage / "public/world/example/index.jpg", "cover")
+
+            with self.assertRaisesRegex(RuntimeError, "world/philosophy/cognition"):
+                publish_notion.publish_artifacts(
+                    SimpleNamespace(
+                        metadata=str(metadata_path),
+                        stage=str(stage),
+                        public_repo=str(public_repo),
+                        base_url="https://ujnotes.com",
+                    )
+                )
+
     def test_php_diagnostic_artifact_is_rejected(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             bundle, source, public_repo, metadata_path = self.make_fixture(temp_dir)

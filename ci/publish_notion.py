@@ -453,6 +453,17 @@ def public_page_paths(root, slug, stage_html, stage_json):
     return root / f"{relative}.html", root / f"{relative}.json"
 
 
+def public_html_exists(root, slug):
+    root = Path(root)
+    if slug == "root":
+        return (root / "index.html").is_file()
+    relative = Path(*slug.split("/"))
+    return any(
+        path.is_file()
+        for path in (root / relative / "index.html", root / f"{relative}.html")
+    )
+
+
 def publish_artifacts(args):
     metadata_path, metadata = read_metadata(args.metadata)
     slug = metadata["slug"]
@@ -494,7 +505,12 @@ def publish_artifacts(args):
         raise RuntimeError("Built JSON description does not match Notion")
     content = str(built_json.get("content", ""))
     for queued_slug in metadata.get("queued_slugs", []):
-        if queued_slug and queued_slug != slug and queued_slug in content:
+        if (
+            queued_slug
+            and queued_slug != slug
+            and queued_slug in content
+            and not public_html_exists(public_root, queued_slug)
+        ):
             raise RuntimeError(
                 f"Built article links to queued unpublished page {queued_slug!r}"
             )

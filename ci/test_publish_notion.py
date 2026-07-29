@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -143,7 +144,7 @@ class PublicationMergeTests(unittest.TestCase):
             self.assertEqual(
                 "parent-image",
                 (
-                    stage / "Root/Resource/World/Philosophy/Index.jpg"
+                    stage / "Root/Resource/world/philosophy/index.jpg"
                 ).read_text(encoding="utf-8"),
             )
             self.assertEqual(
@@ -153,37 +154,68 @@ class PublicationMergeTests(unittest.TestCase):
                 ).read_text(encoding="utf-8"),
             )
 
-    def test_legacy_title_cased_component_is_available_at_requested_stage_path(self):
+    def test_stage_normalization_merges_legacy_and_lowercase_component_trees(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             stage = Path(temp_dir) / "stage"
-            legacy = stage / "Root/HTML/Component/World/Philosophy/index.php"
+            legacy = stage / "Root/HTML/Component/World/index.php"
+            generated = (
+                stage
+                / "Root/HTML/Component/world/philosophy/hindu/index.php"
+            )
             root_component = stage / "Root/HTML/Component/Root.php"
-            write(legacy, "<?php echo 'Philosophy'; ?>")
+            resource = (
+                stage / "Root/Resource/World/Philosophy/Hindu/Index.jpg"
+            )
+            write(legacy, "<?php echo 'World'; ?>")
+            write(generated, "<?php echo 'Hindu'; ?>")
             write(root_component, "<?php echo 'Root'; ?>")
+            write(resource, "cover")
 
-            materialized = publish_notion.materialize_component_alias(
-                stage, "world/philosophy"
+            publish_notion.normalize_tree_lowercase(
+                stage / "Root/HTML/Component"
             )
-            materialized_root = publish_notion.materialize_component_alias(
-                stage, "root"
-            )
+            publish_notion.normalize_tree_lowercase(stage / "Root/Resource")
 
-            requested = (
-                stage / "Root/HTML/Component/world/philosophy/index.php"
+            self.assertTrue(
+                (stage / "Root/HTML/Component/world/index.php").is_file()
             )
-            requested_root = stage / "Root/HTML/Component/root.php"
-            self.assertEqual(requested, materialized)
-            self.assertEqual(requested_root, materialized_root)
-            self.assertTrue(requested.is_file())
-            self.assertTrue(requested_root.is_file())
-            self.assertEqual(
-                "<?php echo 'Philosophy'; ?>",
-                requested.read_text(encoding="utf-8"),
+            self.assertTrue(
+                (
+                    stage
+                    / "Root/HTML/Component/world/philosophy/hindu/index.php"
+                ).is_file()
             )
-            self.assertEqual(
-                "<?php echo 'Root'; ?>",
-                requested_root.read_text(encoding="utf-8"),
+            self.assertTrue(
+                (stage / "Root/HTML/Component/root.php").is_file()
             )
+            self.assertTrue(
+                (
+                    stage
+                    / "Root/Resource/world/philosophy/hindu/index.jpg"
+                ).is_file()
+            )
+            if os.name != "nt":
+                component_names = {
+                    child.name
+                    for child in (stage / "Root/HTML/Component").iterdir()
+                }
+                self.assertIn("world", component_names)
+                self.assertNotIn("World", component_names)
+                self.assertIn("root.php", component_names)
+                self.assertNotIn("Root.php", component_names)
+
+    def test_stage_normalization_rejects_conflicting_files(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "Legacy.php"
+            target = root / "legacy.php"
+            write(source, "legacy")
+            if os.name == "nt":
+                target = root / "different.php"
+            write(target, "different")
+
+            with self.assertRaisesRegex(RuntimeError, "Conflicting lowercase"):
+                publish_notion.merge_lowercase_path(source, target)
 
     def test_title_cased_cover_is_resolved_without_source_alias(self):
         with tempfile.TemporaryDirectory() as temp_dir:

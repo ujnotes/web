@@ -4,7 +4,6 @@
 import argparse
 import hashlib
 import json
-import os
 import re
 import shutil
 import sys
@@ -130,48 +129,54 @@ def affected_navigation_slugs(path, slug):
     return [row_slug for row_slug in rows if row_slug in affected]
 
 
-def materialize_case_compatible_path(root, relative):
-    """Create transient aliases so a legacy path is available with requested casing."""
-    root = Path(root).resolve()
-    relative = Path(relative)
-    actual = resolve_case_insensitive(root, relative)
-    if actual is None:
-        return None
-    if (root / relative).exists():
-        return root / relative
-
-    actual_relative = actual.relative_to(root)
-    requested_parent = root
-    actual_parent = root
-    for requested_part, actual_part in zip(relative.parts, actual_relative.parts):
-        requested_child = requested_parent / requested_part
-        actual_child = actual_parent / actual_part
-        if not requested_child.exists():
-            requested_child.symlink_to(
-                os.path.relpath(actual_child, requested_child.parent),
-                target_is_directory=actual_child.is_dir(),
-            )
-        requested_parent = requested_child
-        actual_parent = actual_child
-    return root / relative
+def files_identical(left, right):
+    left = Path(left)
+    right = Path(right)
+    if left.stat().st_size != right.stat().st_size:
+        return False
+    left_hash = hashlib.sha256()
+    right_hash = hashlib.sha256()
+    with left.open("rb") as left_file, right.open("rb") as right_file:
+        for chunk in iter(lambda: left_file.read(1024 * 1024), b""):
+            left_hash.update(chunk)
+        for chunk in iter(lambda: right_file.read(1024 * 1024), b""):
+            right_hash.update(chunk)
+    return left_hash.digest() == right_hash.digest()
 
 
-def materialize_component_alias(stage, slug, language="en"):
-    component_root = Path(stage) / "Root" / "HTML" / "Component"
-    if language != "en":
-        component_root /= language
-    component = Path(*slug.split("/"))
-    candidates = [
-        component.with_suffix(".php"),
-        component.with_suffix(".html"),
-        component / "index.php",
-        component / "index.html",
-    ]
-    for candidate in candidates:
-        materialized = materialize_case_compatible_path(component_root, candidate)
-        if materialized is not None:
-            return materialized
-    raise RuntimeError(f"No component found for affected page {slug!r}")
+def merge_lowercase_path(source, target):
+    source = Path(source)
+    target = Path(target)
+    if source.parent == target.parent and source.name == target.name:
+        return target
+    if target.exists():
+        try:
+            if source.samefile(target):
+                return source
+        except OSError:
+            pass
+        if source.is_dir() and target.is_dir():
+            for child in list(source.iterdir()):
+                merge_lowercase_path(child, target / child.name.lower())
+            source.rmdir()
+            return target
+        if source.is_file() and target.is_file() and files_identical(source, target):
+            source.unlink()
+            return target
+        raise RuntimeError(f"Conflicting lowercase stage paths: {source} and {target}")
+    source.rename(target)
+    return target
+
+
+def normalize_tree_lowercase(root):
+    """Normalize an isolated stage tree to lowercase, merging safe collisions."""
+    root = Path(root)
+    if not root.is_dir():
+        return
+    for child in list(root.iterdir()):
+        if child.is_dir():
+            normalize_tree_lowercase(child)
+        merge_lowercase_path(child, root / child.name.lower())
 
 
 def find_article_row(path, slug):
@@ -326,6 +331,9 @@ def create_stage(args):
     (stage / "public").mkdir()
     (stage / "interim").mkdir()
 
+    normalize_tree_lowercase(stage / "Root" / "HTML" / "Component")
+    normalize_tree_lowercase(stage / "Root" / "Resource")
+
     source_id = safe_target(stage, metadata["source_id"])
     id_lines = read_lines(source_id)
     affected = set(metadata.get("affected_slugs", [metadata["slug"]]))
@@ -335,10 +343,6 @@ def create_stage(args):
         if len(fields) >= 2 and fields[1] in affected:
             selected_id_lines.append(line)
     write_lines(source_id, selected_id_lines)
-
-    language = metadata.get("language", "en")
-    for affected_slug in metadata.get("affected_slugs", [metadata["slug"]]):
-        materialize_component_alias(stage, affected_slug, language)
 
     source_url = safe_target(stage, metadata["source_url"])
     url_header = read_lines(source_url)[0]

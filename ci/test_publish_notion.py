@@ -134,7 +134,7 @@ class PublicationMergeTests(unittest.TestCase):
             url_text = (stage / "Config/Url.tsv").read_text(encoding="utf-8")
             self.assertIn("\tscript\tjs", url_text)
             self.assertNotIn("\tstyle\tcss", url_text)
-            self.assertIn("world/example/\tindex\tjpg", url_text)
+            self.assertNotIn("world/example/\tindex\tjpg", url_text)
             self.assertNotIn("about/\tindex\tjpg", url_text)
             self.assertNotIn("world/other/\tindex\tjpg", url_text)
             id_text = (stage / "Config/ID.tsv").read_text(encoding="utf-8")

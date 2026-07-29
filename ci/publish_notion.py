@@ -316,6 +316,15 @@ def prepare_source(args):
     write_metadata(metadata_path, metadata)
 
 
+def staged_url_artifact(stage, fields):
+    if len(fields) < 3 or not fields[1] or not fields[2]:
+        return None
+    row_dir = fields[0].replace("\\", "/").strip("/")
+    relative = Path(*row_dir.split("/")) if row_dir else Path()
+    relative /= f"{fields[1]}.{fields[2]}"
+    return safe_target(stage, Path("public") / relative)
+
+
 def create_stage(args):
     _, metadata = read_metadata(args.metadata)
     source = Path(args.source).resolve()
@@ -344,19 +353,8 @@ def create_stage(args):
             selected_id_lines.append(line)
     write_lines(source_id, selected_id_lines)
 
-    source_url = safe_target(stage, metadata["source_url"])
-    url_header = read_lines(source_url)[0]
-    url_lines = [url_header]
-    for line in read_lines(source_url)[1:]:
-        fields = line.split("\t")
-        row_path = fields[0].replace("\\", "/").rstrip("/")
-        is_script = len(fields) >= 3 and fields[1:3] == ["script", "js"]
-        if row_path == metadata["slug"] or (not row_path and is_script):
-            url_lines.append(line)
-    write_lines(source_url, url_lines)
-
     # A cover may use legacy title casing in the source repository. Place it
-    # directly at its public build destination; do not create a source alias.
+    # directly at its public build destination before selecting download URLs.
     if metadata.get("source_cover"):
         source_cover = safe_target(source, metadata["source_cover"])
         staged_cover = safe_target(
@@ -365,6 +363,18 @@ def create_stage(args):
         staged_cover.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source_cover, staged_cover)
 
+    source_url = safe_target(stage, metadata["source_url"])
+    url_header = read_lines(source_url)[0]
+    url_lines = [url_header]
+    for line in read_lines(source_url)[1:]:
+        fields = line.split("	")
+        row_path = fields[0].replace("\\", "/").rstrip("/")
+        is_script = len(fields) >= 3 and fields[1:3] == ["script", "js"]
+        selected = row_path == metadata["slug"] or (not row_path and is_script)
+        artifact = staged_url_artifact(stage, fields)
+        if selected and not (artifact and artifact.is_file()):
+            url_lines.append(line)
+    write_lines(source_url, url_lines)
 
 def merge_firebase(path, slug, has_cover):
     path = Path(path)

@@ -226,20 +226,37 @@ class PublicationMergeTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "Conflicting lowercase"):
                 publish_notion.merge_lowercase_path(source, target)
 
-    def test_permuted_cover_directory_is_resolved(self):
+    def test_first_notion_image_url_accepts_uploaded_file(self):
+        blocks = [
+            {"type": "paragraph", "paragraph": {}},
+            {
+                "type": "image",
+                "image": {
+                    "type": "file",
+                    "file": {"url": "https://notion.example/cover.jpg"},
+                },
+            },
+        ]
+
+        self.assertEqual(
+            "https://notion.example/cover.jpg",
+            publish_notion.first_notion_image_url(blocks),
+        )
+
+    def test_notion_cover_target_reuses_title_cased_source_file(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             source = Path(temp_dir) / "source"
-            permuted = (
+            title_cased = (
                 source
-                / "Root/Resource/World/Philosophy/Hindu/Atheist_Hindu/Index.jpg"
+                / "Root/Resource/World/Philosophy/Hindu/Hindu_Atheist/Index.jpg"
             )
-            write(permuted, "hindu-atheist-cover")
+            write(title_cased, "cover")
 
-            resolved = publish_notion.resolve_article_cover(
+            target = publish_notion.notion_cover_target(
                 source, "world/philosophy/hindu/hindu_atheist"
             )
 
-            self.assertEqual(permuted, resolved)
+            self.assertEqual(title_cased, target)
 
     def test_title_cased_cover_is_resolved_without_source_alias(self):
         with tempfile.TemporaryDirectory() as temp_dir:

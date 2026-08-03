@@ -4,6 +4,7 @@
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
 import sys
@@ -95,33 +96,72 @@ def resolve_case_insensitive(root, relative):
     return current
 
 
-def cover_name_key(value):
-    return tuple(sorted(part.casefold() for part in re.split(r"[_-]+", value) if part))
+def first_notion_image_url(blocks):
+    for block in blocks:
+        if block.get("type") != "image":
+            continue
+        image = block.get("image", {})
+        image_type = image.get("type")
+        image_source = image.get(image_type, {}) if image_type else {}
+        if image_source.get("url"):
+            return image_source["url"]
+    return None
 
 
-def resolve_article_cover(source, slug):
-    canonical = Path("Root", "Resource", *slug.split("/"), "index.jpg")
-    cover = resolve_case_insensitive(source, canonical)
-    if cover is not None and cover.is_file():
-        return cover
+def notion_json(url, api_key):
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Notion-Version": "2022-06-28",
+            "User-Agent": "ujnotes-publisher",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return json.load(response)
 
-    slug_parts = slug.split("/")
-    parent_relative = Path("Root", "Resource", *slug_parts[:-1])
-    parent = resolve_case_insensitive(source, parent_relative)
-    if parent is None or not parent.is_dir():
+
+def notion_cover_target(source, slug):
+    relative = Path("Root", "Resource", *slug.split("/"), "index.jpg")
+    existing = resolve_case_insensitive(source, relative)
+    if existing is not None:
+        return existing
+    parent = resolve_case_insensitive(source, relative.parent)
+    return parent / "index.jpg" if parent is not None else safe_target(source, relative)
+
+
+def download_notion_cover(source, slug, page_id, api_key):
+    endpoint = f"https://api.notion.com/v1/blocks/{page_id}/children?page_size=100"
+    while endpoint:
+        payload = notion_json(endpoint, api_key)
+        image_url = first_notion_image_url(payload.get("results", []))
+        if image_url:
+            break
+        cursor = payload.get("next_cursor") if payload.get("has_more") else None
+        endpoint = (
+            "https://api.notion.com/v1/blocks/"
+            f"{page_id}/children?page_size=100&start_cursor={cursor}"
+            if cursor
+            else None
+        )
+    else:
         return None
 
-    expected_key = cover_name_key(slug_parts[-1])
-    candidates = []
-    for child in parent.iterdir():
-        if child.is_dir() and cover_name_key(child.name) == expected_key:
-            candidate = resolve_case_insensitive(child, "index.jpg")
-            if candidate is not None and candidate.is_file():
-                candidates.append(candidate)
-    if len(candidates) > 1:
-        raise RuntimeError(f"Ambiguous article cover directories for {slug!r}")
-    return candidates[0] if candidates else None
+    request = urllib.request.Request(
+        image_url, headers={"User-Agent": "ujnotes-publisher"}
+    )
+    with urllib.request.urlopen(request, timeout=60) as response:
+        content_type = response.headers.get_content_type()
+        if content_type != "image/jpeg":
+            raise RuntimeError(f"Notion cover must be JPEG, got {content_type!r}")
+        content = response.read(50 * 1024 * 1024 + 1)
+    if len(content) > 50 * 1024 * 1024:
+        raise RuntimeError("Notion cover exceeds 50 MiB")
 
+    cover = notion_cover_target(source, slug)
+    cover.parent.mkdir(parents=True, exist_ok=True)
+    cover.write_bytes(content)
+    return cover
 
 def parent_slug(slug):
     if slug == "root":
@@ -298,7 +338,16 @@ def prepare_source(args):
     source_component.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(generated_component, source_component)
 
-    cover = resolve_article_cover(source, slug)
+    api_key = os.environ.get("NOTION_API_KEY")
+    notion_cover = (
+        download_notion_cover(source, slug, metadata["page_id"], api_key)
+        if api_key
+        else None
+    )
+    cover = notion_cover
+    if cover is None:
+        cover_relative = Path("Root", "Resource", *slug.split("/"), "index.jpg")
+        cover = resolve_case_insensitive(source, cover_relative)
     component_text = source_component.read_text(encoding="utf-8")
     cover_is_file = cover is not None and cover.is_file()
     has_cover = cover_is_file or "Component_cover.php" in component_text
@@ -329,6 +378,7 @@ def prepare_source(args):
     metadata.update(
         {
             "has_cover": has_cover,
+            "cover_origin": "notion" if notion_cover is not None else "source",
             "source_cover": (
                 cover.relative_to(source).as_posix() if cover_is_file else None
             ),

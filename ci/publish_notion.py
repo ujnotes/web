@@ -95,6 +95,34 @@ def resolve_case_insensitive(root, relative):
     return current
 
 
+def cover_name_key(value):
+    return tuple(sorted(part.casefold() for part in re.split(r"[_-]+", value) if part))
+
+
+def resolve_article_cover(source, slug):
+    canonical = Path("Root", "Resource", *slug.split("/"), "index.jpg")
+    cover = resolve_case_insensitive(source, canonical)
+    if cover is not None and cover.is_file():
+        return cover
+
+    slug_parts = slug.split("/")
+    parent_relative = Path("Root", "Resource", *slug_parts[:-1])
+    parent = resolve_case_insensitive(source, parent_relative)
+    if parent is None or not parent.is_dir():
+        return None
+
+    expected_key = cover_name_key(slug_parts[-1])
+    candidates = []
+    for child in parent.iterdir():
+        if child.is_dir() and cover_name_key(child.name) == expected_key:
+            candidate = resolve_case_insensitive(child, "index.jpg")
+            if candidate is not None and candidate.is_file():
+                candidates.append(candidate)
+    if len(candidates) > 1:
+        raise RuntimeError(f"Ambiguous article cover directories for {slug!r}")
+    return candidates[0] if candidates else None
+
+
 def parent_slug(slug):
     if slug == "root":
         return None
@@ -270,8 +298,7 @@ def prepare_source(args):
     source_component.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(generated_component, source_component)
 
-    cover_relative = Path("Root", "Resource", *slug.split("/"), "index.jpg")
-    cover = resolve_case_insensitive(source, cover_relative)
+    cover = resolve_article_cover(source, slug)
     component_text = source_component.read_text(encoding="utf-8")
     cover_is_file = cover is not None and cover.is_file()
     has_cover = cover_is_file or "Component_cover.php" in component_text

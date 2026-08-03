@@ -226,6 +226,21 @@ class PublicationMergeTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "Conflicting lowercase"):
                 publish_notion.merge_lowercase_path(source, target)
 
+    def test_permuted_cover_directory_is_resolved(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "source"
+            permuted = (
+                source
+                / "Root/Resource/World/Philosophy/Hindu/Atheist_Hindu/Index.jpg"
+            )
+            write(permuted, "hindu-atheist-cover")
+
+            resolved = publish_notion.resolve_article_cover(
+                source, "world/philosophy/hindu/hindu_atheist"
+            )
+
+            self.assertEqual(permuted, resolved)
+
     def test_title_cased_cover_is_resolved_without_source_alias(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             source = Path(temp_dir) / "source"
@@ -516,6 +531,7 @@ class PublicationMergeTests(unittest.TestCase):
         self.assertIn('ln -s Root "$STAGE_DIR/root"', workflow)
         self.assertIn('d.get("source_cover")', workflow)
         self.assertIn("paths:\n      - .github/workflows/publish-notion.yml", workflow)
+        self.assertIn("      - ci/publish_notion.py", workflow)
         self.assertIn('github.event_name }}" != "workflow_dispatch"', workflow)
 
 

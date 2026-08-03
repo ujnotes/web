@@ -1,5 +1,7 @@
 #! /bin/bash
 
+set -euo pipefail
+
 /app/tiggu/build.sh /app/site/project
 
 cd /app

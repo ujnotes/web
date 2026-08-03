@@ -61,6 +61,17 @@ Used to setup CI; Not required afterwards - hence separate.
 ## Website
 `ujnotes.com` \> mapped to `public` directory
 
+## Multilanguage URLs
+
+English is the default language and is served directly at the base URL. For
+example, `/world/philosophy/hindu` renders English and does not redirect to an
+`/en/...` URL. Native translations use a language prefix, such as
+`/hi/world/philosophy/hindu`.
+
+When a requested translation is unavailable, Cutie falls back to the English
+component without redirecting away from the language-prefixed URL. Canonical
+and `hreflang` metadata use the unprefixed English URL as `x-default`.
+
 ## Setup
 - Run following script to setup the directory structure & repos
 ```bash

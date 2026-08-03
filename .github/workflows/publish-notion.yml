@@ -1,6 +1,10 @@
 name: Publish article from Notion
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/publish-notion.yml
   workflow_dispatch:
     inputs:
       slug:
@@ -118,7 +122,7 @@ jobs:
           if [[ -n "$REQUESTED_SLUG" ]]; then
             args+=(--slug "$REQUESTED_SLUG")
           fi
-          if [[ "${{ github.event_name }}" == "schedule" ]]; then
+          if [[ "${{ github.event_name }}" != "workflow_dispatch" ]]; then
             args+=(--allow-empty)
           fi
           python ncms/ncms_fetch.py "${args[@]}"

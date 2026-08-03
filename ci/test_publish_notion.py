@@ -514,6 +514,7 @@ class PublicationMergeTests(unittest.TestCase):
             workflow,
         )
         self.assertIn('ln -s Root "$STAGE_DIR/root"', workflow)
+        self.assertIn('d.get("source_cover")', workflow)
 
 
 if __name__ == "__main__":

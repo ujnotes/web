@@ -1216,6 +1216,100 @@ class PublicationMergeTests(unittest.TestCase):
             self.assertIn("world", metadata["affected_slugs"])
             self.assertIn("hi/world/example", metadata["render_slugs"])
 
+    def test_prepare_github_without_slug_renders_all_published(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source"
+            metadata_path = root / "article.json"
+
+            write(
+                source / "Root/HTML/Component/Root.php",
+                "<div id='message'>Home</div>\n",
+            )
+            write(
+                source / "Root/HTML/Component/hi/root/index.php",
+                "<div id='message'>घर</div>\n",
+            )
+            write(
+                source / "Root/HTML/Component/faq/index.php",
+                "<div id='message'>FAQ</div>\n",
+            )
+            write(
+                source / "Root/HTML/Component/hi/faq/index.php",
+                "<div id='message'>प्रश्न</div>\n",
+            )
+            write(
+                source / "Config/ID.tsv",
+                "Status\tId\tLabel\tTitle\tJS\tDescription\tType\n"
+                "published\tfaq\tFAQ\tFAQ\t0\tQuestions\tpage\n"
+                "published\troot\tHome\tHome\t0\tHome page\tpage\n"
+                "draft\tskipped\tSkipped\tSkipped\t0\tDraft\tpage\n",
+            )
+            write(
+                source / "Config/ID_hi.tsv",
+                "Status\tId\tLabel\tTitle\tJS\tDescription\tType\n"
+                "published\tfaq\tप्रश्न\tप्रश्न\t0\tप्रश्न\tpage\n"
+                "published\troot\tघर\tघर\t0\tहोम\tpage\n",
+            )
+            write(source / "Config/Url.tsv", "Path\tName\tExtension\n\tscript\tjs\n")
+            write(source / "Config/Url_hi.tsv", "Path\tName\tExtension\n")
+            write(
+                source / "Config/Translations.tsv",
+                "TranslationGroup\ten\thi\n"
+                "faq\tpublished\tpublished\n"
+                "root\tpublished\tpublished\n",
+            )
+            write(
+                source / "Root/Site/SiteMap.xml",
+                "<?xml version='1.0'?><urlset></urlset>",
+            )
+
+            publish_notion.prepare_github(
+                SimpleNamespace(
+                    slug="",
+                    metadata=str(metadata_path),
+                    source=str(source),
+                    base_url="https://ujnotes.com",
+                )
+            )
+
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            self.assertEqual("all", metadata["render_scope"])
+            self.assertEqual("root", metadata["slug"])
+            self.assertEqual(["faq", "root"], metadata["queued_slugs"])
+            self.assertEqual(["faq", "root"], metadata["affected_slugs"])
+            self.assertEqual(
+                ["faq", "hi/faq", "root", "hi/root"],
+                metadata["render_slugs"],
+            )
+            self.assertIn(
+                "Root/HTML/Component/faq/index.php",
+                metadata["source_components"],
+            )
+            self.assertIn(
+                "Root/HTML/Component/hi/root/index.php",
+                metadata["source_components"],
+            )
+
+            stage = root / "stage"
+            publish_notion.create_stage(
+                SimpleNamespace(
+                    metadata=str(metadata_path),
+                    source=str(source),
+                    stage=str(stage),
+                )
+            )
+            self.assertEqual(
+                ["faq", "hi/faq", "root", "hi/root"],
+                (stage / "Config/Render.lsv")
+                .read_text(encoding="utf-8")
+                .splitlines(),
+            )
+            self.assertIn(
+                "\tscript\tjs",
+                (stage / "Config/Url.tsv").read_text(encoding="utf-8"),
+            )
+
     def test_prepare_github_requires_existing_component(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -1260,7 +1354,7 @@ class PublicationMergeTests(unittest.TestCase):
         project = Path(__file__).resolve().parents[1]
         compose = (project / "compose-dev.yaml").read_text(encoding="utf-8")
         workflow = (
-            project / ".github/workflows/publish-notion.yml"
+            project / ".github/workflows/publish-page.yml"
         ).read_text(encoding="utf-8")
 
         self.assertIn(
@@ -1273,12 +1367,14 @@ class PublicationMergeTests(unittest.TestCase):
         )
         self.assertIn('ln -s Root "$STAGE_DIR/root"', workflow)
         self.assertIn('["source_paths"]', workflow)
-        self.assertIn("paths:\n      - .github/workflows/publish-notion.yml", workflow)
+        self.assertIn("paths:\n      - .github/workflows/publish-page.yml", workflow)
         self.assertIn("      - ci/publish_notion.py", workflow)
         self.assertIn('github.event_name }}" != "workflow_dispatch"', workflow)
         self.assertIn("prepare-github", workflow)
         self.assertIn("CONTENT_SOURCE:", workflow)
         self.assertIn("- github", workflow)
+        self.assertNotIn("github source requires an explicit slug", workflow)
+        self.assertIn("github renders all published articles when omitted", workflow)
 
 
 if __name__ == "__main__":

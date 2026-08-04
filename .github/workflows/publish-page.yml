@@ -18,7 +18,7 @@ on:
           - notion
           - github
       slug:
-        description: Optional exact Notion article slug (required for github source)
+        description: Optional article slug (github renders all published articles when omitted)
         required: false
         type: string
       dry_run:
@@ -61,8 +61,6 @@ jobs:
     steps:
       - name: Validate production configuration
         shell: bash
-        env:
-          REQUESTED_SLUG: ${{ github.event_name == 'workflow_dispatch' && inputs.slug || '' }}
         run: |
           set -euo pipefail
           test -n "$PUBLISH_TOKEN" || { echo "UJNOTES_PUBLISH_TOKEN is missing" >&2; exit 1; }
@@ -70,9 +68,7 @@ jobs:
             echo "source must be notion or github (got $CONTENT_SOURCE)" >&2
             exit 1
           fi
-          if [[ "$CONTENT_SOURCE" == "github" ]]; then
-            test -n "$REQUESTED_SLUG" || { echo "github source requires an explicit slug" >&2; exit 1; }
-          else
+          if [[ "$CONTENT_SOURCE" != "github" ]]; then
             test -n "$NOTION_API_KEY" || { echo "NOTION_API_KEY is missing" >&2; exit 1; }
             test -n "$NOTION_DATABASE_ID" || { echo "prod variable NOTION_DATABASE_ID is missing" >&2; exit 1; }
           fi
@@ -167,11 +163,16 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$(dirname "$METADATA_FILE")"
-          python project/ci/publish_notion.py prepare-github \
-            --slug "$REQUESTED_SLUG" \
-            --metadata "$METADATA_FILE" \
-            --source site/project \
+          args=(
+            prepare-github
+            --metadata "$METADATA_FILE"
+            --source site/project
             --base-url "$BASE_URL"
+          )
+          if [[ -n "${REQUESTED_SLUG:-}" ]]; then
+            args+=(--slug "$REQUESTED_SLUG")
+          fi
+          python project/ci/publish_notion.py "${args[@]}"
           publish_changes=true
           if [[ "$DRY_RUN" == "true" ]]; then
             publish_changes=false
@@ -256,11 +257,22 @@ jobs:
             --base-url "$BASE_URL"
           python -m json.tool project/build/firebase.json >/dev/null
           python -c 'import xml.etree.ElementTree as ET; ET.parse("project/build/public/sitemap.xml")'
-          article_slug=$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["slug"])' "$METADATA_FILE")
+          mapfile -t sitemap_slug_args < <(python -c '
+import json, sys
+metadata = json.load(open(sys.argv[1], encoding="utf-8"))
+if metadata.get("render_scope") == "all":
+    raise SystemExit
+for slug in metadata.get("queued_slugs") or [metadata["slug"]]:
+    print(slug)
+' "$METADATA_FILE")
+          sitemap_args=()
+          for slug in "${sitemap_slug_args[@]+"${sitemap_slug_args[@]}"}"; do
+            sitemap_args+=(--slug "$slug")
+          done
           python project/ci/validate_sitemap.py \
             --sitemap project/build/public/sitemap.xml \
             --translations site/project/Config/Translations.tsv \
-            --slug "$article_slug" \
+            "${sitemap_args[@]}" \
             --public-root project/build/public \
             --firebase project/build/firebase.json \
             --base-url "$BASE_URL"
@@ -307,7 +319,7 @@ jobs:
           done < <(python -c 'import json,sys; print("\n".join(json.load(open(sys.argv[1], encoding="utf-8"))["public_paths"]))' "$METADATA_FILE")
           git -C project/build diff --cached --check
           if ! git -C project/build diff --cached --quiet; then
-            slug=$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["slug"])' "$METADATA_FILE")
+            slug=$(python -c 'import json,sys; m=json.load(open(sys.argv[1], encoding="utf-8")); print("site" if m.get("render_scope")=="all" else m["slug"])' "$METADATA_FILE")
             source_label=$(python -c 'import json,sys; print({"github":"GitHub"}.get(json.load(open(sys.argv[1], encoding="utf-8")).get("content_source","notion"),"Notion"))' "$METADATA_FILE")
             git -C project/build commit -m "Publish $slug from $source_label"
             git -C project/build push origin HEAD:main

@@ -280,13 +280,19 @@ def parent_slug(slug):
     return slug.rsplit("/", 1)[0]
 
 
-def affected_navigation_slugs(path, slug):
-    """Return the article, its ancestors, and adjacent siblings."""
+def published_article_slugs(path):
+    """Return published/publish article IDs from an ID.tsv in file order."""
     rows = []
     for line in read_lines(path)[1:]:
         fields = line.split("\t")
-        if len(fields) >= 2 and fields[0] == "published":
+        if len(fields) >= 2 and fields[0] in {"published", "publish"}:
             rows.append(fields[1])
+    return rows
+
+
+def affected_navigation_slugs(path, slug):
+    """Return the article, its ancestors, and adjacent siblings."""
+    rows = published_article_slugs(path)
 
     affected = {slug}
     current = parent_slug(slug)
@@ -762,11 +768,18 @@ def prepare_source(args):
     write_metadata(metadata_path, metadata)
 
 
-def prepare_github(args):
-    """Build publication metadata from an existing GitHub site checkout."""
-    slug = validate_slug(args.slug)
-    source = Path(args.source).resolve()
-    metadata_path = Path(args.metadata).resolve()
+def _canonical_source_relative(source, path):
+    relative = Path(path).resolve().relative_to(Path(source).resolve()).as_posix()
+    if relative.lower().startswith("root/"):
+        return "Root/" + relative[5:]
+    return relative
+
+
+def prepare_github_article(source, slug, metadata_path):
+    """Build publication metadata for one GitHub article slug."""
+    slug = validate_slug(slug)
+    source = Path(source).resolve()
+    metadata_path = Path(metadata_path).resolve()
     metadata_path.parent.mkdir(parents=True, exist_ok=True)
 
     translations = safe_target(source, Path("Config", "Translations.tsv"))
@@ -792,10 +805,7 @@ def prepare_github(args):
         if not source_url.is_file():
             raise RuntimeError(f"GitHub source is missing URL map: {source_url}")
 
-        relative_component = source_component.relative_to(source).as_posix()
-        # Preserve Git-canonical path prefixes on case-insensitive checkouts.
-        if relative_component.lower().startswith("root/"):
-            relative_component = "Root/" + relative_component[5:]
+        relative_component = _canonical_source_relative(source, source_component)
         variant = {
             "slug": slug,
             "title": fields["title"],
@@ -831,7 +841,7 @@ def prepare_github(args):
         for variant in variants
         if variant["language"] != "en"
     )
-    render_slugs = [slug.lower() for slug in dict.fromkeys(render_slugs)]
+    render_slugs = [item.lower() for item in dict.fromkeys(render_slugs)]
     for variant in variants:
         variant["public_slug"] = (
             variant["slug"]
@@ -843,9 +853,7 @@ def prepare_github(args):
     relative_sitemap = Path("Root", "Site", "SiteMap.xml").as_posix()
     relative_cover = None
     if cover_is_file:
-        relative_cover = cover.relative_to(source).as_posix()
-        if relative_cover.lower().startswith("root/"):
-            relative_cover = "Root/" + relative_cover[5:]
+        relative_cover = _canonical_source_relative(source, cover)
     source_paths = list(
         dict.fromkeys(
             source_components
@@ -856,7 +864,7 @@ def prepare_github(args):
         )
     )
 
-    metadata = {
+    return {
         "content_source": "github",
         "slug": slug,
         "title": variants[0]["title"],
@@ -881,6 +889,87 @@ def prepare_github(args):
         "render_slugs": render_slugs,
         "source_paths": source_paths,
     }
+
+
+def prepare_github_all(source, metadata_path):
+    """Build publication metadata that renders every published GitHub article."""
+    source = Path(source).resolve()
+    metadata_path = Path(metadata_path).resolve()
+    source_id = safe_target(source, Path("Config", "ID.tsv"))
+    if not source_id.is_file():
+        raise RuntimeError(f"GitHub source is missing ID map: {source_id}")
+    slugs = published_article_slugs(source_id)
+    if not slugs:
+        raise RuntimeError("No published articles found in GitHub source")
+
+    primary = "root" if "root" in slugs else slugs[0]
+    metadata = prepare_github_article(source, primary, metadata_path)
+    translations = safe_target(source, Path("Config", "Translations.tsv"))
+
+    source_components = []
+    render_slugs = []
+    source_ids = list(metadata["source_ids"])
+    source_urls = list(metadata["source_urls"])
+    for slug in slugs:
+        languages = published_translation_languages(translations, slug)
+        for language in languages:
+            suffix = "" if language == "en" else f"_{language}"
+            relative_id = Path("Config", f"ID{suffix}.tsv").as_posix()
+            id_path = safe_target(source, relative_id)
+            if not id_path.is_file():
+                raise RuntimeError(f"GitHub source is missing ID map: {id_path}")
+            source_ids.append(relative_id)
+
+            relative_url = Path("Config", f"Url{suffix}.tsv").as_posix()
+            url_path = safe_target(source, relative_url)
+            if not url_path.is_file():
+                relative_url = Path("Config", "Url.tsv").as_posix()
+                url_path = safe_target(source, relative_url)
+            if not url_path.is_file():
+                raise RuntimeError(f"GitHub source is missing URL map: {url_path}")
+            source_urls.append(relative_url)
+
+            component = resolve_article_component(source, slug, language)
+            source_components.append(_canonical_source_relative(source, component))
+            public_slug = slug if language == "en" else f"{language}/{slug}"
+            render_slugs.append(public_slug.lower())
+
+    metadata["queued_slugs"] = list(slugs)
+    metadata["affected_slugs"] = list(slugs)
+    metadata["render_slugs"] = list(dict.fromkeys(render_slugs))
+    # Keep the primary article as the metadata anchor; lint every component.
+    metadata["source_components"] = list(
+        dict.fromkeys(list(metadata["source_components"]) + source_components)
+    )
+    metadata["source_ids"] = list(dict.fromkeys(source_ids))
+    metadata["source_urls"] = list(dict.fromkeys(source_urls))
+    metadata["render_scope"] = "all"
+    metadata["source_paths"] = list(
+        dict.fromkeys(
+            metadata["source_components"]
+            + metadata["source_ids"]
+            + metadata["source_urls"]
+            + [metadata["source_translations"], metadata["source_sitemap"]]
+            + (
+                [metadata["source_cover"]]
+                if metadata.get("source_cover")
+                else []
+            )
+        )
+    )
+    return metadata
+
+
+def prepare_github(args):
+    """Build publication metadata from an existing GitHub site checkout."""
+    source = Path(args.source).resolve()
+    metadata_path = Path(args.metadata).resolve()
+    metadata_path.parent.mkdir(parents=True, exist_ok=True)
+    requested = (args.slug or "").strip()
+    if requested:
+        metadata = prepare_github_article(source, requested, metadata_path)
+    else:
+        metadata = prepare_github_all(source, metadata_path)
     write_metadata(metadata_path, metadata)
     print("GITHUB_RESULT=" + json.dumps(metadata, ensure_ascii=True))
     return metadata
@@ -930,9 +1019,10 @@ def create_stage(args):
         write_metadata(Path(args.metadata), metadata)
 
     variants = article_variants(metadata)
+    render_all = metadata.get("render_scope") == "all"
     render_slugs = (
         metadata.get("render_slugs")
-        if len(variants) > 1
+        if render_all or len(variants) > 1
         else metadata.get("affected_slugs")
     )
     if not render_slugs:
@@ -944,6 +1034,10 @@ def create_stage(args):
     write_lines(render_list, render_slugs)
     metadata["render_slugs"] = render_slugs
     write_metadata(Path(args.metadata), metadata)
+
+    # Full-site GitHub renders keep the source URL manifests intact.
+    if render_all:
+        return
 
     if metadata.get("source_cover"):
         source_cover = safe_target(source, metadata["source_cover"])
@@ -1181,10 +1275,12 @@ def publish_artifacts(args):
     public_paths = ["firebase.json", "public/sitemap.xml"]
     variant_hashes = {}
     referenced_assets = set()
+    render_all = metadata.get("render_scope") == "all"
+    english_slugs = set(metadata.get("queued_slugs") or [slug])
 
     artifact_slugs = (
         metadata.get("render_slugs")
-        if len(variants) > 1
+        if render_all or len(variants) > 1
         else metadata.get("affected_slugs")
     )
     if not artifact_slugs:
@@ -1232,6 +1328,7 @@ def publish_artifacts(args):
                 if (
                     queued_slug
                     and queued_slug != slug
+                    and not render_all
                     and queued_slug in content
                     and not public_html_exists(public_root, queued_slug)
                 ):
@@ -1239,6 +1336,10 @@ def publish_artifacts(args):
                         f"Built article links to queued unpublished page "
                         f"{queued_slug!r}"
                     )
+            variant_hashes[artifact_slug] = hashlib.sha256(
+                stage_json.read_bytes()
+            ).hexdigest()
+        elif render_all:
             variant_hashes[artifact_slug] = hashlib.sha256(
                 stage_json.read_bytes()
             ).hexdigest()
@@ -1279,35 +1380,62 @@ def publish_artifacts(args):
             f"Rendered translation variants are missing: {sorted(missing_variants)}"
         )
 
-    if metadata["has_cover"]:
-        for variant in variants:
-            public_slug = variant["public_slug"]
-            stage_jpg = safe_target(
-                stage, Path("public", *public_slug.split("/"), "index.jpg")
-            )
-            if not stage_jpg.is_file() or stage_jpg.stat().st_size == 0:
-                raise RuntimeError(f"Expected cover artifact is missing: {stage_jpg}")
-            public_jpg = safe_target(
-                public_repo,
-                Path("public", *public_slug.split("/"), "index.jpg"),
-            )
-            public_jpg.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(stage_jpg, public_jpg)
-            public_paths.append(public_jpg.relative_to(public_repo).as_posix())
-
     firebase_path = public_repo / "firebase.json"
     public_sitemap = public_repo / "public" / "sitemap.xml"
-    for variant in variants:
-        public_slug = variant["public_slug"]
-        merge_firebase(
-            firebase_path,
-            public_slug,
-            metadata["has_cover"],
-            add_shortcut=variant["language"] == "en",
-        )
-        add_sitemap_url(
-            public_sitemap, sitemap_page_url(args.base_url, public_slug)
-        )
+
+    if render_all:
+        for artifact_slug in dict.fromkeys(artifact_slugs):
+            stage_jpg = safe_target(
+                stage, Path("public", *artifact_slug.split("/"), "index.jpg")
+            )
+            has_cover = stage_jpg.is_file() and stage_jpg.stat().st_size > 0
+            if has_cover:
+                public_jpg = safe_target(
+                    public_repo,
+                    Path("public", *artifact_slug.split("/"), "index.jpg"),
+                )
+                public_jpg.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(stage_jpg, public_jpg)
+                public_paths.append(public_jpg.relative_to(public_repo).as_posix())
+            merge_firebase(
+                firebase_path,
+                artifact_slug,
+                has_cover,
+                add_shortcut=artifact_slug in english_slugs,
+            )
+            add_sitemap_url(
+                public_sitemap, sitemap_page_url(args.base_url, artifact_slug)
+            )
+    else:
+        if metadata["has_cover"]:
+            for variant in variants:
+                public_slug = variant["public_slug"]
+                stage_jpg = safe_target(
+                    stage, Path("public", *public_slug.split("/"), "index.jpg")
+                )
+                if not stage_jpg.is_file() or stage_jpg.stat().st_size == 0:
+                    raise RuntimeError(
+                        f"Expected cover artifact is missing: {stage_jpg}"
+                    )
+                public_jpg = safe_target(
+                    public_repo,
+                    Path("public", *public_slug.split("/"), "index.jpg"),
+                )
+                public_jpg.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(stage_jpg, public_jpg)
+                public_paths.append(public_jpg.relative_to(public_repo).as_posix())
+
+        for variant in variants:
+            public_slug = variant["public_slug"]
+            merge_firebase(
+                firebase_path,
+                public_slug,
+                metadata["has_cover"],
+                add_shortcut=variant["language"] == "en",
+            )
+            add_sitemap_url(
+                public_sitemap, sitemap_page_url(args.base_url, public_slug)
+            )
 
     metadata["public_paths"] = list(dict.fromkeys(public_paths))
     metadata["variant_hashes"] = variant_hashes
@@ -1369,7 +1497,11 @@ def main(argv=None):
     prepare.set_defaults(func=prepare_source)
 
     github = subparsers.add_parser("prepare-github")
-    github.add_argument("--slug", required=True)
+    github.add_argument(
+        "--slug",
+        default="",
+        help="Article slug to publish; omit to render all published articles",
+    )
     github.add_argument("--metadata", required=True)
     github.add_argument("--source", required=True)
     github.add_argument("--base-url", default="https://ujnotes.com")

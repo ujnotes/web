@@ -373,6 +373,11 @@ def article_variants(metadata):
     return normalized
 
 
+def sitemap_page_url(base_url, public_slug):
+    base = base_url.rstrip("/")
+    return f"{base}/" if public_slug == "root" else f"{base}/{public_slug}"
+
+
 def merge_translation_manifest(path, slug, languages):
     path = Path(path)
     lines = read_lines(path) if path.is_file() else []
@@ -539,7 +544,7 @@ def prepare_source(args):
     for variant in variants:
         add_sitemap_url(
             source_sitemap,
-            f"{args.base_url.rstrip('/')}/{variant['public_slug']}",
+            sitemap_page_url(args.base_url, variant["public_slug"]),
         )
 
     translations = safe_target(source, Path("Config", "Translations.tsv"))
@@ -716,7 +721,9 @@ def merge_firebase(path, slug, has_cover, add_shortcut=True):
                 {"source": shortcut, "destination": destination, "type": 301}
             )
 
-    required = [{"source": f"/{slug}.json", "destination": f"/{slug}/index.json"}]
+    required = [] if slug == "root" else [
+        {"source": f"/{slug}.json", "destination": f"/{slug}/index.json"}
+    ]
     if has_cover:
         required.append(
             {"source": f"/{slug}.jpg", "destination": f"/{slug}/index.jpg"}
@@ -947,7 +954,7 @@ def publish_artifacts(args):
             add_shortcut=variant["language"] == "en",
         )
         add_sitemap_url(
-            public_sitemap, f"{args.base_url.rstrip('/')}/{public_slug}"
+            public_sitemap, sitemap_page_url(args.base_url, public_slug)
         )
 
     metadata["public_paths"] = list(dict.fromkeys(public_paths))

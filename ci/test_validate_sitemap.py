@@ -22,6 +22,20 @@ class SitemapValidationTests(unittest.TestCase):
             missing = validate_sitemap.expected_translation_urls(translations, "https://ujnotes.com") - set(urls)
             self.assertEqual({"https://ujnotes.com/hi/world/example"}, missing)
 
+    def test_manifest_maps_english_root_to_homepage(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            translations = Path(temp_dir) / "Translations.tsv"
+            self.write(
+                translations,
+                "TranslationGroup\ten\thi\nroot\tpublished\tpublished\n",
+            )
+            self.assertEqual(
+                {"https://ujnotes.com/", "https://ujnotes.com/hi/root"},
+                validate_sitemap.expected_translation_urls(
+                    translations, "https://ujnotes.com"
+                ),
+            )
+
     def test_local_validation_flags_metadata_preamble(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

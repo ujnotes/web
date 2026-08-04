@@ -874,6 +874,23 @@ class PublicationMergeTests(unittest.TestCase):
             self.assertTrue(
                 (stage / "Root/HTML/Component/root.php").is_file()
             )
+            source_sitemap = (source / "Root/Site/SiteMap.xml").read_text(
+                encoding="utf-8"
+            )
+            self.assertIn("https://ujnotes.com/", source_sitemap)
+            self.assertNotIn("https://ujnotes.com/root", source_sitemap)
+            self.assertIn("https://ujnotes.com/hi/root", source_sitemap)
+
+    def test_root_firebase_json_uses_flat_public_artifact(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            firebase = Path(temp_dir) / "firebase.json"
+            write(firebase, json.dumps({"hosting": {}}))
+            publish_notion.merge_firebase(firebase, "root", False)
+            hosting = json.loads(firebase.read_text(encoding="utf-8"))["hosting"]
+            self.assertNotIn(
+                {"source": "/root.json", "destination": "/root/index.json"},
+                hosting["rewrites"],
+            )
 
     def test_renderer_mounts_normalized_stage(self):
         project = Path(__file__).resolve().parents[1]

@@ -15,6 +15,11 @@ from pathlib import Path
 METADATA_PREAMBLE_FIELDS = ("Language", "Label", "Title", "Description")
 
 
+def sitemap_page_url(base_url, public_slug):
+    base = base_url.rstrip("/")
+    return f"{base}/" if public_slug == "root" else f"{base}/{public_slug}"
+
+
 def sitemap_urls(path):
     root = ET.parse(path).getroot()
     urls = [(node.text or "").strip() for node in root.findall(".//{*}loc") if (node.text or "").strip()]
@@ -39,7 +44,7 @@ def expected_translation_urls(path, base_url):
                 status = row[index].strip().lower() if index < len(row) else ""
                 if status == "published":
                     public_slug = slug if language == "en" else f"{language}/{slug}"
-                    expected.add(f"{base_url.rstrip('/')}/{public_slug}")
+                    expected.add(sitemap_page_url(base_url, public_slug))
     return expected
 
 

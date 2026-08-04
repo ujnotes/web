@@ -782,7 +782,7 @@ class PublicationMergeTests(unittest.TestCase):
                 bundle / "HTML/Component/hi/root/index.php",
                 "<div id='message'>हिन्दी मुखपृष्ठ</div>\n"
                 "<?php require('../JS/Base/page.js'); ?>\n"
-                "<?php require('../HTML/Fragment/Component_bottom.php') ?>",
+                "<?php require('../HTML/Fragment/Component_bottom.php') ?>\n\n",
             )
             write(
                 bundle / "Config/ID.tsv",
@@ -854,6 +854,7 @@ class PublicationMergeTests(unittest.TestCase):
             hindi_root_text = hindi_root.read_text(encoding="utf-8")
             self.assertNotIn("../JS/Base/page.js", hindi_root_text)
             self.assertNotIn("Component_bottom.php", hindi_root_text)
+            self.assertFalse(hindi_root_text.endswith("\n\n"))
 
             stage = Path(temp_dir) / "stage"
             publish_notion.create_stage(

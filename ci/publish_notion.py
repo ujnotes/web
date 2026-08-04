@@ -470,8 +470,13 @@ def prepare_source(args):
                 "<?php require('../HTML/Fragment/Component_bottom.php') ?>", ""
             )
 
+        normalized_lines = [
+            line.rstrip() for line in generated_text.splitlines()
+        ]
+        while normalized_lines and not normalized_lines[-1]:
+            normalized_lines.pop()
         source_component.write_text(
-            "\n".join(line.rstrip() for line in generated_text.splitlines()) + "\n",
+            "\n".join(normalized_lines) + "\n",
             encoding="utf-8",
             newline="\n",
         )

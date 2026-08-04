@@ -616,6 +616,22 @@ def create_stage(args):
     normalize_tree_lowercase(stage / "Root" / "HTML" / "Component")
     normalize_tree_lowercase(stage / "Root" / "Resource")
 
+    normalized_components = []
+    for component in metadata.get("source_components", []):
+        resolved = resolve_case_insensitive(stage, Path(component))
+        if resolved is None or not resolved.is_file():
+            raise RuntimeError(f"Staged component not found: {component}")
+        relative = resolved.relative_to(stage)
+        normalized = Path(
+            *relative.parts[:3],
+            *(part.lower() for part in relative.parts[3:]),
+        )
+        normalized_components.append(normalized.as_posix())
+    if normalized_components:
+        metadata["source_component"] = normalized_components[0]
+        metadata["source_components"] = normalized_components
+        write_metadata(Path(args.metadata), metadata)
+
     variants = article_variants(metadata)
     render_slugs = (
         metadata.get("render_slugs")

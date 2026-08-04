@@ -824,6 +824,27 @@ class PublicationMergeTests(unittest.TestCase):
             self.assertTrue(
                 (source / "Root/HTML/Component/hi/root/index.php").is_file()
             )
+
+            stage = Path(temp_dir) / "stage"
+            publish_notion.create_stage(
+                SimpleNamespace(
+                    metadata=str(metadata_path),
+                    source=str(source),
+                    stage=str(stage),
+                )
+            )
+            staged = json.loads(metadata_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                [
+                    "Root/HTML/Component/root.php",
+                    "Root/HTML/Component/hi/root/index.php",
+                ],
+                staged["source_components"],
+            )
+            self.assertTrue(
+                (stage / "Root/HTML/Component/root.php").is_file()
+            )
+
     def test_renderer_mounts_normalized_stage(self):
         project = Path(__file__).resolve().parents[1]
         compose = (project / "compose-dev.yaml").read_text(encoding="utf-8")

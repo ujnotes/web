@@ -472,7 +472,7 @@ def create_stage(args):
             prefixed_lines.append("\t".join(fields))
         write_lines(tiggu_url, prefixed_lines)
 
-def merge_firebase(path, slug, has_cover):
+def merge_firebase(path, slug, has_cover, add_shortcut=True):
     path = Path(path)
     with path.open(encoding="utf-8") as source:
         data = json.load(source)
@@ -630,8 +630,12 @@ def publish_artifacts(args):
         public_paths.append(public_jpg.relative_to(public_repo).as_posix())
 
     firebase_path = public_repo / "firebase.json"
-    if language == "en":
-        merge_firebase(firebase_path, public_slug, metadata["has_cover"])
+    merge_firebase(
+        firebase_path,
+        public_slug,
+        metadata["has_cover"],
+        add_shortcut=language == "en",
+    )
     public_sitemap = public_repo / "public" / "sitemap.xml"
     add_sitemap_url(public_sitemap, f"{args.base_url.rstrip('/')}/{public_slug}")
 

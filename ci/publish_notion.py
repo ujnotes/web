@@ -337,6 +337,12 @@ def prepare_source(args):
     source_component = safe_target(source, Path(*component_parts))
     source_component.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(generated_component, source_component)
+    generated_text = source_component.read_text(encoding="utf-8")
+    source_component.write_text(
+        "\n".join(line.rstrip() for line in generated_text.splitlines()) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
 
     api_key = os.environ.get("NOTION_API_KEY")
     notion_cover = (

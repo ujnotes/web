@@ -97,6 +97,38 @@ class PublicationMergeTests(unittest.TestCase):
                 "Path\tName\tExtension\nworld/example/\tindex\tjpg\n",
                 url_path.read_text(encoding="utf-8"),
             )
+    def test_rewrite_backed_asset_is_accepted(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            public_repo = Path(temp_dir)
+            write(public_repo / "public/world/index.jpg", "cover")
+            write(
+                public_repo / "firebase.json",
+                json.dumps(
+                    {
+                        "hosting": {
+                            "rewrites": [
+                                {
+                                    "source": "/world.jpg",
+                                    "destination": "/world/index.jpg",
+                                }
+                            ]
+                        }
+                    }
+                ),
+            )
+
+            self.assertTrue(
+                publish_notion.published_asset_exists(
+                    public_repo, public_repo / "public", "world.jpg"
+                )
+            )
+            self.assertFalse(
+                publish_notion.published_asset_exists(
+                    public_repo, public_repo / "public", "missing.js"
+                )
+            )
+
+
     def test_translation_manifest_clears_removed_language_without_whitespace(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "Translations.tsv"

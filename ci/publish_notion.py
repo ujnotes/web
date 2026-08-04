@@ -750,6 +750,28 @@ def rendered_asset_paths(html_path):
     return assets
 
 
+def published_asset_exists(public_repo, public_root, asset_path):
+    public_asset = safe_target(public_root, asset_path)
+    if public_asset.is_file():
+        return True
+    firebase_path = Path(public_repo) / "firebase.json"
+    with firebase_path.open(encoding="utf-8") as source:
+        firebase = json.load(source)
+    wanted_source = f"/{asset_path}"
+    rewrite = next(
+        (
+            item
+            for item in firebase.get("hosting", {}).get("rewrites", [])
+            if item.get("source") == wanted_source
+        ),
+        None,
+    )
+    if not rewrite or not rewrite.get("destination"):
+        return False
+    destination = urllib.parse.urlsplit(rewrite["destination"]).path.lstrip("/")
+    return safe_target(public_root, destination).is_file()
+
+
 def publish_artifacts(args):
     metadata_path, metadata = read_metadata(args.metadata)
     slug = metadata["slug"]
@@ -833,7 +855,9 @@ def publish_artifacts(args):
             public_asset.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(staged_asset, public_asset)
             public_paths.append(public_asset.relative_to(public_repo).as_posix())
-        elif not public_asset.is_file():
+        elif not published_asset_exists(
+            public_repo, public_root, asset_path
+        ):
             raise RuntimeError(
                 f"Rendered page references a missing local asset: /{asset_path}"
             )

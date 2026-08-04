@@ -744,6 +744,86 @@ class PublicationMergeTests(unittest.TestCase):
             )
 
 
+    def test_root_translation_preserves_code_native_english_component(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            bundle, source, _, metadata_path = self.make_fixture(temp_dir)
+            slug = "root"
+            write(
+                bundle / "HTML/Component/root/index.php",
+                "<div id='message'>Generated root</div>",
+            )
+            write(
+                bundle / "HTML/Component/hi/root/index.php",
+                "<div id='message'>हिन्दी मुखपृष्ठ</div>",
+            )
+            write(
+                bundle / "Config/ID.tsv",
+                "Status\tId\tLabel\tTitle\tJS\tDescription\tType\n"
+                "publish\troot\tUjnotes\tUjnotes\t1\tDescription\tpage\n",
+            )
+            write(
+                bundle / "Config/ID_hi.tsv",
+                "Status\tId\tLabel\tTitle\tJS\tDescription\tType\n"
+                "publish\troot\tउज नोट्स\tउज नोट्स\t1\tविवरण\tpage\n",
+            )
+            native_root = "<?php require_once 'Fragment/Item_text.php'; ?>\n"
+            write(source / "Root/HTML/Component/Root.php", native_root)
+            metadata = {
+                "page_id": "page-root",
+                "slug": slug,
+                "title": "Ujnotes",
+                "description": "Description",
+                "language": "en",
+                "component": "HTML/Component/root/index.php",
+                "queued_slugs": [slug],
+                "variants": [
+                    {
+                        "slug": slug,
+                        "title": "Ujnotes",
+                        "description": "Description",
+                        "language": "en",
+                        "component": "HTML/Component/root/index.php",
+                    },
+                    {
+                        "slug": slug,
+                        "title": "उज नोट्स",
+                        "description": "विवरण",
+                        "language": "hi",
+                        "component": "HTML/Component/hi/root/index.php",
+                    },
+                ],
+            }
+            write(metadata_path, json.dumps(metadata, ensure_ascii=False))
+
+            publish_notion.prepare_source(
+                SimpleNamespace(
+                    bundle=str(bundle),
+                    metadata=str(metadata_path),
+                    source=str(source),
+                    base_url="https://ujnotes.com",
+                )
+            )
+
+            prepared = json.loads(metadata_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                [
+                    "Root/HTML/Component/Root.php",
+                    "Root/HTML/Component/hi/root/index.php",
+                ],
+                prepared["source_components"],
+            )
+            self.assertEqual(
+                native_root,
+                (source / "Root/HTML/Component/Root.php").read_text(
+                    encoding="utf-8"
+                ),
+            )
+            self.assertFalse(
+                (source / "Root/HTML/Component/root/index.php").exists()
+            )
+            self.assertTrue(
+                (source / "Root/HTML/Component/hi/root/index.php").is_file()
+            )
     def test_renderer_mounts_normalized_stage(self):
         project = Path(__file__).resolve().parents[1]
         compose = (project / "compose-dev.yaml").read_text(encoding="utf-8")

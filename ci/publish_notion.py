@@ -426,6 +426,25 @@ def prepare_source(args):
     source_components = []
     for variant in variants:
         generated_component = safe_target(bundle, variant["component"])
+        if slug == "root" and variant["language"] == "en":
+            # The English home page is a code-native component with layout and
+            # helper imports that are not represented by the Notion body. Keep
+            # it in place while publishing nested translations for the root
+            # record; writing root/index.php shadows Root.php on case-sensitive
+            # renderers and makes the JSON endpoint emit raw HTML.
+            source_component = safe_target(
+                source, Path("Root", "HTML", "Component", "Root.php")
+            )
+            if not source_component.is_file():
+                raise RuntimeError(
+                    "Root publication requires the existing code-native "
+                    f"component: {source_component}"
+                )
+            variant["source_component"] = source_component.relative_to(
+                source
+            ).as_posix()
+            source_components.append(variant["source_component"])
+            continue
         component_parts = ["Root", "HTML", "Component"]
         if variant["language"] != "en":
             component_parts.append(variant["language"])

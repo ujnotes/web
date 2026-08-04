@@ -1035,8 +1035,17 @@ def create_stage(args):
     metadata["render_slugs"] = render_slugs
     write_metadata(Path(args.metadata), metadata)
 
-    # Full-site GitHub renders keep the source URL manifests intact.
+    # Full-site GitHub renders keep every URL row, but still normalize Tiggu form:
+    # trailing slashes for index.* paths, and leading empty Path for root assets.
     if render_all:
+        for url_path in sorted((stage / "Config").glob("Url*.tsv")):
+            lines = read_lines(url_path)
+            if not lines:
+                continue
+            output = [lines[0]]
+            for line in lines[1:]:
+                output.append("\t".join(normalize_url_row(parse_url_row(line))))
+            write_lines(url_path, output)
         return
 
     if metadata.get("source_cover"):

@@ -1251,8 +1251,19 @@ class PublicationMergeTests(unittest.TestCase):
                 "published\tfaq\tप्रश्न\tप्रश्न\t0\tप्रश्न\tpage\n"
                 "published\troot\tघर\tघर\t0\tहोम\tpage\n",
             )
-            write(source / "Config/Url.tsv", "Path\tName\tExtension\n\tscript\tjs\n")
-            write(source / "Config/Url_hi.tsv", "Path\tName\tExtension\n")
+            write(
+                source / "Config/Url.tsv",
+                "Path\tName\tExtension\n"
+                "script\tjs\n"
+                "about_site\tindex\tjpg\n"
+                "world\\philosophy\\god\tindex\tjpg\n",
+            )
+            write(
+                source / "Config/Url_hi.tsv",
+                "Path\tName\tExtension\n"
+                "style\tcss\n"
+                "about_site\tindex\tjpg\n",
+            )
             write(
                 source / "Config/Translations.tsv",
                 "TranslationGroup\ten\thi\n"
@@ -1305,10 +1316,15 @@ class PublicationMergeTests(unittest.TestCase):
                 .read_text(encoding="utf-8")
                 .splitlines(),
             )
-            self.assertIn(
-                "\tscript\tjs",
-                (stage / "Config/Url.tsv").read_text(encoding="utf-8"),
-            )
+            url_text = (stage / "Config/Url.tsv").read_text(encoding="utf-8")
+            self.assertIn("\tscript\tjs", url_text)
+            self.assertNotIn("\nscript\tjs\n", url_text)
+            self.assertIn("about_site/\tindex\tjpg", url_text)
+            self.assertNotIn("\nabout_site\tindex\tjpg\n", url_text)
+            self.assertIn("world/philosophy/god/\tindex\tjpg", url_text)
+            url_hi_text = (stage / "Config/Url_hi.tsv").read_text(encoding="utf-8")
+            self.assertIn("\tstyle\tcss", url_hi_text)
+            self.assertIn("about_site/\tindex\tjpg", url_hi_text)
 
     def test_prepare_github_requires_existing_component(self):
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -432,10 +432,11 @@ def create_stage(args):
     source_id = safe_target(stage, metadata["source_id"])
     read_lines(source_id)
     render_list = safe_target(stage, Path("Config", "Render.lsv"))
-    write_lines(
-        render_list,
-        metadata.get("affected_slugs", [metadata["slug"]]),
-    )
+    language = metadata.get("language", "en")
+    render_slugs = metadata.get("affected_slugs", [metadata["slug"]])
+    if language != "en":
+        render_slugs = [f"{language}/{slug}" for slug in render_slugs]
+    write_lines(render_list, render_slugs)
 
     # A cover may use legacy title casing in the source repository. Place it
     # directly at its public build destination before selecting download URLs.
@@ -459,6 +460,15 @@ def create_stage(args):
         if selected and not (artifact and artifact.is_file()):
             url_lines.append(line)
     write_lines(source_url, url_lines)
+    if language != "en":
+        tiggu_url = safe_target(stage, Path("Config", "Url.tsv"))
+        prefixed_lines = [url_header]
+        for line in url_lines[1:]:
+            fields = line.split("\t")
+            if fields[0]:
+                fields[0] = f"{language}/{fields[0].lstrip('/')}"
+            prefixed_lines.append("\t".join(fields))
+        write_lines(tiggu_url, prefixed_lines)
 
 def merge_firebase(path, slug, has_cover):
     path = Path(path)

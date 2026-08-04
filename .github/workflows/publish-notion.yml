@@ -9,8 +9,16 @@ on:
       - ci/validate_sitemap.py
   workflow_dispatch:
     inputs:
+      source:
+        description: Article content source
+        required: true
+        default: notion
+        type: choice
+        options:
+          - notion
+          - github
       slug:
-        description: Optional exact Notion article slug
+        description: Optional exact Notion article slug (required for github source)
         required: false
         type: string
       dry_run:
@@ -48,15 +56,26 @@ jobs:
       METADATA_FILE: ${{ github.workspace }}/.ncms-publish/article.json
       STAGE_DIR: ${{ github.workspace }}/.ncms-publish/site
       SITE_PROJECT_DIR: ${{ github.workspace }}/.ncms-publish/site
+      CONTENT_SOURCE: ${{ github.event_name == 'workflow_dispatch' && inputs.source || 'notion' }}
 
     steps:
       - name: Validate production configuration
         shell: bash
+        env:
+          REQUESTED_SLUG: ${{ github.event_name == 'workflow_dispatch' && inputs.slug || '' }}
         run: |
           set -euo pipefail
-          test -n "$NOTION_API_KEY" || { echo "NOTION_API_KEY is missing" >&2; exit 1; }
-          test -n "$NOTION_DATABASE_ID" || { echo "prod variable NOTION_DATABASE_ID is missing" >&2; exit 1; }
           test -n "$PUBLISH_TOKEN" || { echo "UJNOTES_PUBLISH_TOKEN is missing" >&2; exit 1; }
+          if [[ "$CONTENT_SOURCE" != "notion" && "$CONTENT_SOURCE" != "github" ]]; then
+            echo "source must be notion or github (got $CONTENT_SOURCE)" >&2
+            exit 1
+          fi
+          if [[ "$CONTENT_SOURCE" == "github" ]]; then
+            test -n "$REQUESTED_SLUG" || { echo "github source requires an explicit slug" >&2; exit 1; }
+          else
+            test -n "$NOTION_API_KEY" || { echo "NOTION_API_KEY is missing" >&2; exit 1; }
+            test -n "$NOTION_DATABASE_ID" || { echo "prod variable NOTION_DATABASE_ID is missing" >&2; exit 1; }
+          fi
 
       - name: Check out workflow repository
         uses: actions/checkout@v7
@@ -86,6 +105,7 @@ jobs:
           path: tiggu
 
       - name: Check out NCMS
+        if: env.CONTENT_SOURCE == 'notion'
         uses: actions/checkout@v7
         with:
           repository: blank-org/ncms
@@ -95,14 +115,14 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.13"
-          cache: pip
-          cache-dependency-path: ncms/requirements.txt
 
       - name: Install NCMS
+        if: env.CONTENT_SOURCE == 'notion'
         run: python -m pip install --requirement ncms/requirements.txt
 
       - name: Render queued article with NCMS
         id: render
+        if: env.CONTENT_SOURCE == 'notion'
         shell: bash
         env:
           REQUESTED_SLUG: ${{ github.event_name == 'workflow_dispatch' && inputs.slug || '' }}
@@ -137,16 +157,53 @@ jobs:
           echo "has_work=$has_work" >> "$GITHUB_OUTPUT"
           echo "publish_changes=$publish_changes" >> "$GITHUB_OUTPUT"
 
-      - name: Prepare source and isolated build
-        if: steps.render.outputs.has_work == 'true'
+      - name: Prepare article metadata from GitHub
+        id: render_github
+        if: env.CONTENT_SOURCE == 'github'
         shell: bash
+        env:
+          REQUESTED_SLUG: ${{ inputs.slug }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -euo pipefail
-          python project/ci/publish_notion.py prepare-source \
-            --bundle "$BUNDLE_DIR" \
+          mkdir -p "$(dirname "$METADATA_FILE")"
+          python project/ci/publish_notion.py prepare-github \
+            --slug "$REQUESTED_SLUG" \
             --metadata "$METADATA_FILE" \
             --source site/project \
             --base-url "$BASE_URL"
+          publish_changes=true
+          if [[ "$DRY_RUN" == "true" ]]; then
+            publish_changes=false
+          fi
+          echo "has_work=true" >> "$GITHUB_OUTPUT"
+          echo "publish_changes=$publish_changes" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve render outputs
+        id: work
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$CONTENT_SOURCE" == "github" ]]; then
+            echo "has_work=${{ steps.render_github.outputs.has_work }}" >> "$GITHUB_OUTPUT"
+            echo "publish_changes=${{ steps.render_github.outputs.publish_changes }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_work=${{ steps.render.outputs.has_work }}" >> "$GITHUB_OUTPUT"
+            echo "publish_changes=${{ steps.render.outputs.publish_changes }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Prepare source and isolated build
+        if: steps.work.outputs.has_work == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$CONTENT_SOURCE" == "notion" ]]; then
+            python project/ci/publish_notion.py prepare-source \
+              --bundle "$BUNDLE_DIR" \
+              --metadata "$METADATA_FILE" \
+              --source site/project \
+              --base-url "$BASE_URL"
+          fi
           python project/ci/publish_notion.py create-stage \
             --metadata "$METADATA_FILE" \
             --source site/project \
@@ -160,7 +217,7 @@ jobs:
           fi
 
       - name: Start Cutie renderer
-        if: steps.render.outputs.has_work == 'true'
+        if: steps.work.outputs.has_work == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -178,7 +235,7 @@ jobs:
           '
 
       - name: Validate PHP and render article
-        if: steps.render.outputs.has_work == 'true'
+        if: steps.work.outputs.has_work == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -190,7 +247,7 @@ jobs:
             /app/tiggu/build.sh /app/.ncms-publish/site
 
       - name: Validate and prepare public artifacts
-        if: steps.render.outputs.has_work == 'true'
+        if: steps.work.outputs.has_work == 'true'
         run: |
           python project/ci/publish_notion.py publish-artifacts \
             --metadata "$METADATA_FILE" \
@@ -209,7 +266,7 @@ jobs:
           git -C project/build diff --check
 
       - name: Upload dry-run artifacts
-        if: steps.render.outputs.has_work == 'true' && steps.render.outputs.publish_changes != 'true'
+        if: steps.work.outputs.has_work == 'true' && steps.work.outputs.publish_changes != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: notion-article-dry-run
@@ -220,7 +277,7 @@ jobs:
           retention-days: 7
 
       - name: Commit and push source
-        if: steps.render.outputs.has_work == 'true' && steps.render.outputs.publish_changes == 'true'
+        if: env.CONTENT_SOURCE == 'notion' && steps.work.outputs.has_work == 'true' && steps.work.outputs.publish_changes == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -237,7 +294,7 @@ jobs:
           fi
 
       - name: Commit and push public site
-        if: steps.render.outputs.has_work == 'true' && steps.render.outputs.publish_changes == 'true'
+        if: steps.work.outputs.has_work == 'true' && steps.work.outputs.publish_changes == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -249,12 +306,13 @@ jobs:
           git -C project/build diff --cached --check
           if ! git -C project/build diff --cached --quiet; then
             slug=$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["slug"])' "$METADATA_FILE")
-            git -C project/build commit -m "Publish $slug from Notion"
+            source_label=$(python -c 'import json,sys; print({"github":"GitHub"}.get(json.load(open(sys.argv[1], encoding="utf-8")).get("content_source","notion"),"Notion"))' "$METADATA_FILE")
+            git -C project/build commit -m "Publish $slug from $source_label"
             git -C project/build push origin HEAD:main
           fi
 
       - name: Verify live deployment
-        if: steps.render.outputs.has_work == 'true' && steps.render.outputs.publish_changes == 'true'
+        if: steps.work.outputs.has_work == 'true' && steps.work.outputs.publish_changes == 'true'
         run: |
           python project/ci/publish_notion.py verify-live \
             --metadata "$METADATA_FILE" \
@@ -267,7 +325,7 @@ jobs:
             --live
 
       - name: Mark Notion page published
-        if: steps.render.outputs.has_work == 'true' && steps.render.outputs.publish_changes == 'true'
+        if: env.CONTENT_SOURCE == 'notion' && steps.work.outputs.has_work == 'true' && steps.work.outputs.publish_changes == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -276,5 +334,5 @@ jobs:
           python ncms/ncms_fetch.py mark-published --page-id "$page_id" --expected-slug "$slug"
 
       - name: Stop renderer
-        if: always() && steps.render.outputs.has_work == 'true'
+        if: always() && steps.work.outputs.has_work == 'true'
         run: docker compose -f project/compose-dev.yaml -p ujnotes-actions down --remove-orphans

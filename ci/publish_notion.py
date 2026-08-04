@@ -59,9 +59,78 @@ def read_metadata(path):
         metadata = json.load(source)
     if not metadata.get("no_work"):
         validate_slug(metadata.get("slug", ""))
-        if not metadata.get("page_id"):
+        if not metadata.get("page_id") and metadata.get("content_source") != "github":
             raise RuntimeError("NCMS metadata does not contain page_id")
     return metadata_path, metadata
+
+
+def tsv_field_map(header_line, row_line):
+    headers = header_line.split("\t")
+    fields = row_line.split("\t")
+    fields.extend([""] * (len(headers) - len(fields)))
+    return {
+        name.lower(): fields[index]
+        for index, name in enumerate(headers)
+    }
+
+
+def published_translation_languages(path, slug):
+    path = Path(path)
+    if not path.is_file():
+        return ["en"]
+    lines = read_lines(path)
+    if not lines:
+        return ["en"]
+    header = lines[0].split("\t")
+    if not header or header[0] != "TranslationGroup":
+        raise RuntimeError(f"Invalid translation manifest header: {path}")
+    for line in lines[1:]:
+        fields = line.split("\t")
+        if not fields or fields[0] != slug:
+            continue
+        languages = []
+        for index, language in enumerate(header[1:], start=1):
+            status = fields[index] if index < len(fields) else ""
+            if status == "published":
+                languages.append(language.lower())
+        if "en" not in languages:
+            languages.insert(0, "en")
+        return list(dict.fromkeys(languages))
+    return ["en"]
+
+
+def resolve_article_component(source, slug, language):
+    if slug == "root" and language == "en":
+        component = resolve_case_insensitive(
+            source, Path("Root", "HTML", "Component", "Root.php")
+        )
+        if component is None or not component.is_file():
+            raise RuntimeError(
+                f"GitHub source is missing the root component: {source}/Root/HTML/Component/Root.php"
+            )
+        return component
+    parts = ["Root", "HTML", "Component"]
+    if language != "en":
+        parts.append(language)
+    parts.extend(slug.split("/"))
+    parts.append("index.php")
+    component = resolve_case_insensitive(source, Path(*parts))
+    if component is None or not component.is_file():
+        raise RuntimeError(
+            f"GitHub source is missing component for {language!r}: "
+            f"{Path(*parts).as_posix()}"
+        )
+    return component
+
+
+def article_metadata_from_id(path, slug):
+    header, row = find_article_row(path, slug)
+    values = tsv_field_map(header, row)
+    return {
+        "title": values.get("title", ""),
+        "description": values.get("description", ""),
+        "label": values.get("label", ""),
+    }
 
 
 def write_metadata(path, metadata):
@@ -641,6 +710,130 @@ def prepare_source(args):
     write_metadata(metadata_path, metadata)
 
 
+def prepare_github(args):
+    """Build publication metadata from an existing GitHub site checkout."""
+    slug = validate_slug(args.slug)
+    source = Path(args.source).resolve()
+    metadata_path = Path(args.metadata).resolve()
+    metadata_path.parent.mkdir(parents=True, exist_ok=True)
+
+    translations = safe_target(source, Path("Config", "Translations.tsv"))
+    languages = published_translation_languages(translations, slug)
+    variants = []
+    source_components = []
+    source_ids = []
+    source_urls = []
+
+    for language in languages:
+        suffix = "" if language == "en" else f"_{language}"
+        relative_id = Path("Config", f"ID{suffix}.tsv").as_posix()
+        source_id = safe_target(source, relative_id)
+        if not source_id.is_file():
+            raise RuntimeError(f"GitHub source is missing ID map: {source_id}")
+        fields = article_metadata_from_id(source_id, slug)
+        source_component = resolve_article_component(source, slug, language)
+        relative_url = Path("Config", f"Url{suffix}.tsv").as_posix()
+        source_url = safe_target(source, relative_url)
+        if not source_url.is_file():
+            relative_url = Path("Config", "Url.tsv").as_posix()
+            source_url = safe_target(source, relative_url)
+        if not source_url.is_file():
+            raise RuntimeError(f"GitHub source is missing URL map: {source_url}")
+
+        relative_component = source_component.relative_to(source).as_posix()
+        # Preserve Git-canonical path prefixes on case-insensitive checkouts.
+        if relative_component.lower().startswith("root/"):
+            relative_component = "Root/" + relative_component[5:]
+        variant = {
+            "slug": slug,
+            "title": fields["title"],
+            "description": fields["description"],
+            "language": language,
+            "component": relative_component,
+            "source_component": relative_component,
+            "source_id": relative_id,
+            "source_url": relative_url,
+            "article_row": find_article_row(source_id, slug)[1],
+        }
+        variants.append(variant)
+        source_components.append(relative_component)
+        source_ids.append(relative_id)
+        source_urls.append(relative_url)
+
+    cover = resolve_component_cover(source, slug)
+    cover_is_file = cover is not None and cover.is_file()
+    base_component = safe_target(source, source_components[0])
+    has_cover = cover_is_file or "Component_cover.php" in base_component.read_text(
+        encoding="utf-8"
+    )
+
+    base_id = safe_target(source, source_ids[0])
+    affected_slugs = affected_navigation_slugs(base_id, slug)
+    render_slugs = list(affected_slugs)
+    render_slugs.extend(
+        (
+            variant["slug"]
+            if variant["language"] == "en"
+            else f"{variant['language']}/{variant['slug']}"
+        )
+        for variant in variants
+        if variant["language"] != "en"
+    )
+    render_slugs = list(dict.fromkeys(render_slugs))
+    for variant in variants:
+        variant["public_slug"] = (
+            variant["slug"]
+            if variant["language"] == "en"
+            else f"{variant['language']}/{variant['slug']}"
+        )
+
+    relative_translations = Path("Config", "Translations.tsv").as_posix()
+    relative_sitemap = Path("Root", "Site", "SiteMap.xml").as_posix()
+    relative_cover = None
+    if cover_is_file:
+        relative_cover = cover.relative_to(source).as_posix()
+        if relative_cover.lower().startswith("root/"):
+            relative_cover = "Root/" + relative_cover[5:]
+    source_paths = list(
+        dict.fromkeys(
+            source_components
+            + list(dict.fromkeys(source_ids))
+            + list(dict.fromkeys(source_urls))
+            + [relative_translations, relative_sitemap]
+            + ([relative_cover] if relative_cover else [])
+        )
+    )
+
+    metadata = {
+        "content_source": "github",
+        "slug": slug,
+        "title": variants[0]["title"],
+        "description": variants[0]["description"],
+        "language": "en",
+        "component": source_components[0],
+        "queued_slugs": [slug],
+        "variants": variants,
+        "has_cover": has_cover,
+        "cover_origin": "source",
+        "source_cover": relative_cover,
+        "source_component": source_components[0],
+        "source_components": source_components,
+        "source_id": source_ids[0],
+        "source_ids": list(dict.fromkeys(source_ids)),
+        "source_url": source_urls[0],
+        "source_urls": list(dict.fromkeys(source_urls)),
+        "source_translations": relative_translations,
+        "source_sitemap": relative_sitemap,
+        "article_row": variants[0]["article_row"],
+        "affected_slugs": affected_slugs,
+        "render_slugs": render_slugs,
+        "source_paths": source_paths,
+    }
+    write_metadata(metadata_path, metadata)
+    print("GITHUB_RESULT=" + json.dumps(metadata, ensure_ascii=True))
+    return metadata
+
+
 def staged_url_artifact(stage, fields):
     if len(fields) < 3 or not fields[1] or not fields[2]:
         return None
@@ -1103,6 +1296,13 @@ def main(argv=None):
     prepare.add_argument("--source", required=True)
     prepare.add_argument("--base-url", default="https://ujnotes.com")
     prepare.set_defaults(func=prepare_source)
+
+    github = subparsers.add_parser("prepare-github")
+    github.add_argument("--slug", required=True)
+    github.add_argument("--metadata", required=True)
+    github.add_argument("--source", required=True)
+    github.add_argument("--base-url", default="https://ujnotes.com")
+    github.set_defaults(func=prepare_github)
 
     stage = subparsers.add_parser("create-stage")
     stage.add_argument("--metadata", required=True)

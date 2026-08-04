@@ -1028,6 +1028,113 @@ class PublicationMergeTests(unittest.TestCase):
             published = json.loads(metadata_path.read_text(encoding="utf-8"))
             self.assertIn("public/hi/menu.html", published["public_paths"])
 
+    def test_prepare_github_builds_metadata_from_source_tree(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source"
+            metadata_path = root / "article.json"
+            slug = "world/example"
+
+            write(
+                source / "Root/HTML/Component/world/example/index.php",
+                "<?php $alt='Example'; require('../HTML/Fragment/Component_cover.php') ?>\n"
+                "<div id='message'>Example</div>\n",
+            )
+            write(
+                source / "Root/HTML/Component/hi/world/example/index.php",
+                "<div id='message'>उदाहरण</div>\n",
+            )
+            write(
+                source / "Config/ID.tsv",
+                "Status\tId\tLabel\tTitle\tJS\tDescription\tType\n"
+                "published\tworld/example\tExample\tExample\t0\tDescription\tarticle\n"
+                "published\tworld\tWorld\tWorld\t0\tParent\tarticle\n",
+            )
+            write(
+                source / "Config/ID_hi.tsv",
+                "Status\tId\tLabel\tTitle\tJS\tDescription\tType\n"
+                "published\tworld/example\tउदाहरण\tउदाहरण\t0\tविवरण\tarticle\n",
+            )
+            write(
+                source / "Config/Url.tsv",
+                "Path\tName\tExtension\n"
+                "\tscript\tjs\n"
+                "world/example/\tindex\tjpg\n",
+            )
+            write(
+                source / "Config/Url_hi.tsv",
+                "Path\tName\tExtension\n"
+                "world/example/\tindex\tjpg\n",
+            )
+            write(
+                source / "Config/Translations.tsv",
+                "TranslationGroup\ten\thi\n"
+                "world/example\tpublished\tpublished\n",
+            )
+            write(
+                source / "Root/Site/SiteMap.xml",
+                "<?xml version='1.0'?><urlset></urlset>",
+            )
+            write(source / "Root/Resource/world/example/index.jpg", "cover")
+
+            publish_notion.prepare_github(
+                SimpleNamespace(
+                    slug=slug,
+                    metadata=str(metadata_path),
+                    source=str(source),
+                    base_url="https://ujnotes.com",
+                )
+            )
+
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            self.assertEqual("github", metadata["content_source"])
+            self.assertNotIn("page_id", metadata)
+            self.assertTrue(metadata["has_cover"])
+            self.assertEqual("source", metadata["cover_origin"])
+            self.assertEqual(
+                [
+                    "Root/HTML/Component/world/example/index.php",
+                    "Root/HTML/Component/hi/world/example/index.php",
+                ],
+                metadata["source_components"],
+            )
+            self.assertEqual(
+                {"en", "hi"},
+                {variant["language"] for variant in metadata["variants"]},
+            )
+            self.assertEqual("विवरण", metadata["variants"][1]["description"])
+            self.assertIn("world", metadata["affected_slugs"])
+            self.assertIn("hi/world/example", metadata["render_slugs"])
+
+    def test_prepare_github_requires_existing_component(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source"
+            write(
+                source / "Config/ID.tsv",
+                "Status\tId\tLabel\tTitle\tJS\tDescription\tType\n"
+                "published\tmissing\tMissing\tMissing\t0\tGone\tarticle\n",
+            )
+            write(
+                source / "Config/Translations.tsv",
+                "TranslationGroup\ten\nmissing\tpublished\n",
+            )
+            write(source / "Config/Url.tsv", "Path\tName\tExtension\n")
+            write(
+                source / "Root/Site/SiteMap.xml",
+                "<?xml version='1.0'?><urlset></urlset>",
+            )
+
+            with self.assertRaisesRegex(RuntimeError, "missing component"):
+                publish_notion.prepare_github(
+                    SimpleNamespace(
+                        slug="missing",
+                        metadata=str(root / "article.json"),
+                        source=str(source),
+                        base_url="https://ujnotes.com",
+                    )
+                )
+
     def test_root_firebase_json_uses_flat_public_artifact(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             firebase = Path(temp_dir) / "firebase.json"
@@ -1059,6 +1166,9 @@ class PublicationMergeTests(unittest.TestCase):
         self.assertIn("paths:\n      - .github/workflows/publish-notion.yml", workflow)
         self.assertIn("      - ci/publish_notion.py", workflow)
         self.assertIn('github.event_name }}" != "workflow_dispatch"', workflow)
+        self.assertIn("prepare-github", workflow)
+        self.assertIn("CONTENT_SOURCE:", workflow)
+        self.assertIn("- github", workflow)
 
 
 if __name__ == "__main__":

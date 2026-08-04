@@ -256,9 +256,11 @@ jobs:
             --base-url "$BASE_URL"
           python -m json.tool project/build/firebase.json >/dev/null
           python -c 'import xml.etree.ElementTree as ET; ET.parse("project/build/public/sitemap.xml")'
+          article_slug=$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["slug"])' "$METADATA_FILE")
           python project/ci/validate_sitemap.py \
             --sitemap project/build/public/sitemap.xml \
             --translations site/project/Config/Translations.tsv \
+            --slug "$article_slug" \
             --public-root project/build/public \
             --firebase project/build/firebase.json \
             --base-url "$BASE_URL"

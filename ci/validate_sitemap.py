@@ -29,8 +29,9 @@ def sitemap_urls(path):
     return urls
 
 
-def expected_translation_urls(path, base_url):
+def expected_translation_urls(path, base_url, slugs=None):
     expected = set()
+    wanted = {slug.strip().strip("/") for slug in (slugs or []) if slug}
     with Path(path).open(encoding="utf-8", newline="") as source:
         rows = csv.reader(source, delimiter="\t")
         header = next(rows, None)
@@ -40,6 +41,8 @@ def expected_translation_urls(path, base_url):
             if not row:
                 continue
             slug = row[0].strip().strip("/")
+            if wanted and slug not in wanted:
+                continue
             for index, language in enumerate(header[1:], start=1):
                 status = row[index].strip().lower() if index < len(row) else ""
                 if status == "published":
@@ -181,6 +184,12 @@ def main(argv=None):
     parser.add_argument("--sitemap", required=True)
     parser.add_argument("--base-url", default="https://ujnotes.com")
     parser.add_argument("--translations")
+    parser.add_argument(
+        "--slug",
+        action="append",
+        default=[],
+        help="Only require these TranslationGroup slugs in the sitemap",
+    )
     parser.add_argument("--public-root")
     parser.add_argument("--firebase")
     parser.add_argument("--live", action="store_true")
@@ -190,8 +199,13 @@ def main(argv=None):
     urls = sitemap_urls(args.sitemap)
     errors = []
     if args.translations:
-        missing = expected_translation_urls(args.translations, args.base_url) - set(urls)
-        errors.extend(f"Published translation missing from sitemap: {url}" for url in sorted(missing))
+        missing = expected_translation_urls(
+            args.translations, args.base_url, args.slug
+        ) - set(urls)
+        errors.extend(
+            f"Published translation missing from sitemap: {url}"
+            for url in sorted(missing)
+        )
     if args.public_root:
         errors.extend(validate_local(urls, args.base_url, args.public_root, args.firebase))
     if args.live:

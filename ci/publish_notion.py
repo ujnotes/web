@@ -411,6 +411,58 @@ def merge_url_row(path, slug, has_cover):
     write_lines(path, output)
 
 
+def parse_url_row(line):
+    """Split a Url.tsv row, preserving a leading empty Path field."""
+    fields = line.split("\t")
+    fields.extend([""] * (3 - len(fields)))
+    return fields[:3]
+
+
+def normalize_url_row(fields, language="en"):
+    """
+    Normalize Url.tsv fields to Tiggu's form:
+    - root assets use a leading empty Path ("\\tscript\\tjs")
+    - directory paths use forward slashes and a trailing slash for index.* rows
+    """
+    path, name, extension = parse_url_row("\t".join(fields))
+    # Repair legacy two-column root assets: "script\\tjs" => "\\tscript\\tjs".
+    if path and not extension and name in {
+        "js",
+        "css",
+        "json",
+        "txt",
+        "xml",
+        "png",
+        "jpg",
+        "jpeg",
+        "ico",
+        "svg",
+        "webp",
+    }:
+        path, name, extension = "", path, name
+
+    path = path.replace("\\", "/")
+    if name == "index" and extension and path and not path.endswith("/"):
+        path = f"{path}/"
+    if language != "en" and path and not path.startswith(f"{language}/"):
+        path = f"{language}/{path.lstrip('/')}"
+        if name == "index" and extension and not path.endswith("/"):
+            path = f"{path}/"
+    return [path, name, extension]
+
+
+def is_global_script_row(fields):
+    path, name, extension = normalize_url_row(fields)
+    return path == "" and name == "script" and extension == "js"
+
+
+def url_row_article_slug(fields):
+    path, _, _ = normalize_url_row(fields)
+    if not path:
+        return None
+    return path.rstrip("/")
+
+
 def add_sitemap_url(path, url):
     path = Path(path)
     content = path.read_text(encoding="utf-8")
@@ -779,13 +831,13 @@ def prepare_github(args):
         for variant in variants
         if variant["language"] != "en"
     )
-    render_slugs = list(dict.fromkeys(render_slugs))
+    render_slugs = [slug.lower() for slug in dict.fromkeys(render_slugs)]
     for variant in variants:
         variant["public_slug"] = (
             variant["slug"]
             if variant["language"] == "en"
             else f"{variant['language']}/{variant['slug']}"
-        )
+        ).lower()
 
     relative_translations = Path("Config", "Translations.tsv").as_posix()
     relative_sitemap = Path("Root", "Site", "SiteMap.xml").as_posix()
@@ -886,15 +938,19 @@ def create_stage(args):
     if not render_slugs:
         variant = article_variants(metadata)[0]
         render_slugs = [variant["public_slug"]]
+    # Public/render routes are always lowercase; interim may keep stylized case.
+    render_slugs = [str(slug).lower() for slug in render_slugs]
     render_list = safe_target(stage, Path("Config", "Render.lsv"))
     write_lines(render_list, render_slugs)
+    metadata["render_slugs"] = render_slugs
+    write_metadata(Path(args.metadata), metadata)
 
     if metadata.get("source_cover"):
         source_cover = safe_target(source, metadata["source_cover"])
         for variant in variants:
             staged_cover = safe_target(
                 stage,
-                Path("public", *variant["public_slug"].split("/"), "index.jpg"),
+                Path("public", *variant["public_slug"].lower().split("/"), "index.jpg"),
             )
             staged_cover.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source_cover, staged_cover)
@@ -906,32 +962,47 @@ def create_stage(args):
     url_header = default_lines[0]
     url_lines = [url_header]
     seen_rows = set()
+
+    def append_url_row(fields):
+        normalized_line = "\t".join(fields)
+        artifact = staged_url_artifact(stage, fields)
+        if normalized_line in seen_rows or (artifact and artifact.is_file()):
+            return
+        url_lines.append(normalized_line)
+        seen_rows.add(normalized_line)
+
+    # Root assets must keep the leading empty Path field ("\tscript\tjs").
+    append_url_row(["", "script", "js"])
+
     for variant in variants:
         source_url = safe_target(stage, variant.get("source_url", metadata["source_url"]))
         for line in read_lines(source_url)[1:]:
-            fields = line.split("\t")
-            row_path = fields[0].replace("\\", "/").rstrip("/")
-            is_script = len(fields) >= 3 and fields[1:3] == ["script", "js"]
-            selected = row_path == metadata["slug"] or (
-                variant["language"] == "en" and not row_path and is_script
-            )
-            if not selected:
+            fields = parse_url_row(line)
+            if is_global_script_row(fields):
                 continue
-            if row_path and variant["language"] != "en":
-                fields[0] = f"{variant['language']}/{fields[0].lstrip('/')}"
-            artifact = staged_url_artifact(stage, fields)
-            normalized_line = "\t".join(fields)
-            if normalized_line not in seen_rows and not (
-                artifact and artifact.is_file()
-            ):
-                url_lines.append(normalized_line)
-                seen_rows.add(normalized_line)
+            article_slug = url_row_article_slug(fields)
+            if article_slug != metadata["slug"]:
+                continue
+            normalized = normalize_url_row(fields, language=variant["language"])
+            is_cover = normalized[1] == "index" and normalized[2] in {
+                "jpg",
+                "jpeg",
+                "png",
+                "webp",
+            }
+            if is_cover and not metadata.get("has_cover"):
+                continue
+            append_url_row(normalized)
+        if metadata.get("has_cover"):
+            cover_path = (
+                f"{metadata['slug']}/"
+                if variant["language"] == "en"
+                else f"{variant['language']}/{metadata['slug']}/"
+            )
+            append_url_row([cover_path, "index", "jpg"])
     for menu_slug in localized_menu_slugs(variants):
         language = menu_slug.split("/", 1)[0]
-        normalized_line = f"{language}/\tmenu\t"
-        if normalized_line not in seen_rows:
-            url_lines.append(normalized_line)
-            seen_rows.add(normalized_line)
+        append_url_row([f"{language}/", "menu", ""])
     write_lines(default_url, url_lines)
 
 

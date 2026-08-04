@@ -97,6 +97,116 @@ class PublicationMergeTests(unittest.TestCase):
                 "Path\tName\tExtension\nworld/example/\tindex\tjpg\n",
                 url_path.read_text(encoding="utf-8"),
             )
+
+    def test_normalize_url_row_preserves_leading_empty_path(self):
+        self.assertEqual(
+            ["", "script", "js"],
+            publish_notion.normalize_url_row(["", "script", "js"]),
+        )
+        self.assertEqual(
+            ["", "script", "js"],
+            publish_notion.normalize_url_row(["script", "js"]),
+        )
+        self.assertEqual(
+            ["faq/", "index", "jpg"],
+            publish_notion.normalize_url_row(["faq", "index", "jpg"]),
+        )
+        self.assertEqual(
+            ["world/philosophy/hindu/", "index", "jpg"],
+            publish_notion.normalize_url_row(
+                ["world\\philosophy\\hindu", "index", "jpg"]
+            ),
+        )
+        self.assertEqual(
+            ["hi/faq/", "index", "jpg"],
+            publish_notion.normalize_url_row(["faq", "index", "jpg"], language="hi"),
+        )
+
+    def test_create_stage_repairs_legacy_url_rows_without_empty_path(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source"
+            metadata_path = root / "article.json"
+            slug = "faq"
+            write(
+                source / "Root/HTML/Component/faq/index.php",
+                "<div id='message'>FAQ</div>\n",
+            )
+            write(
+                source / "Config/ID.tsv",
+                "Status\tId\tLabel\tTitle\tJS\tDescription\tType\n"
+                "published\tfaq\tFAQ\tFAQ\t0\tQuestions\tpage\n"
+                "published\troot\tRoot\tRoot\t0\tHome\tpage\n",
+            )
+            write(
+                source / "Config/Url.tsv",
+                "Path\tName\tExtension\n"
+                "script\tjs\n"
+                "style\tcss\n"
+                "faq\tindex\tjpg\n",
+            )
+            write(
+                source / "Config/Translations.tsv",
+                "TranslationGroup\ten\nfaq\tpublished\n",
+            )
+            write(
+                source / "Root/Site/SiteMap.xml",
+                "<?xml version='1.0'?><urlset></urlset>",
+            )
+            write(
+                metadata_path,
+                json.dumps(
+                    {
+                        "content_source": "github",
+                        "slug": slug,
+                        "title": "FAQ",
+                        "description": "Questions",
+                        "language": "en",
+                        "component": "Root/HTML/Component/faq/index.php",
+                        "queued_slugs": [slug],
+                        "variants": [
+                            {
+                                "slug": slug,
+                                "title": "FAQ",
+                                "description": "Questions",
+                                "language": "en",
+                                "component": "Root/HTML/Component/faq/index.php",
+                                "source_component": "Root/HTML/Component/faq/index.php",
+                                "source_url": "Config/Url.tsv",
+                            }
+                        ],
+                        "has_cover": False,
+                        "source_components": [
+                            "Root/HTML/Component/faq/index.php"
+                        ],
+                        "source_url": "Config/Url.tsv",
+                        "affected_slugs": ["faq", "root"],
+                        "render_slugs": ["faq", "root"],
+                    }
+                ),
+            )
+
+            stage = root / "stage"
+            publish_notion.create_stage(
+                SimpleNamespace(
+                    metadata=str(metadata_path),
+                    source=str(source),
+                    stage=str(stage),
+                )
+            )
+
+            url_text = (stage / "Config/Url.tsv").read_text(encoding="utf-8")
+            self.assertIn("\tscript\tjs", url_text)
+            self.assertNotIn("\nscript\tjs\n", url_text)
+            self.assertNotIn("faq\tindex\tjpg", url_text)
+            self.assertNotIn("faq/\tindex\tjpg", url_text)
+            self.assertEqual(
+                ["faq", "root"],
+                (stage / "Config/Render.lsv")
+                .read_text(encoding="utf-8")
+                .splitlines(),
+            )
+
     def test_rewrite_backed_asset_is_accepted(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             public_repo = Path(temp_dir)

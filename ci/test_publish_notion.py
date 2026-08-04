@@ -86,6 +86,17 @@ class PublicationMergeTests(unittest.TestCase):
         )
         return bundle, source, public_repo, metadata_path
 
+    def test_merge_url_row_initializes_empty_language_map(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            url_path = Path(temp_dir) / "Url_hi.tsv"
+            write(url_path, "")
+
+            publish_notion.merge_url_row(url_path, "world/example", has_cover=True)
+
+            self.assertEqual(
+                "Path\tName\tExtension\nworld/example/\tindex\tjpg\n",
+                url_path.read_text(encoding="utf-8"),
+            )
     def test_source_merge_preserves_existing_rows(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             bundle, source, _, metadata_path = self.make_fixture(temp_dir)

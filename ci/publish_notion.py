@@ -291,7 +291,7 @@ def merge_id_row(path, slug, new_row, status=None):
 def merge_url_row(path, slug, has_cover):
     lines = read_lines(path)
     if not lines:
-        raise RuntimeError(f"URL file is empty: {path}")
+        lines = ["Path\tName\tExtension"]
     output = [lines[0]]
     for line in lines[1:]:
         first = line.split("\t", 1)[0].replace("\\", "/").rstrip("/")

@@ -448,8 +448,11 @@ def prepare_source(args):
         component_parts = ["Root", "HTML", "Component"]
         if variant["language"] != "en":
             component_parts.append(variant["language"])
-        component_parts.extend(slug.split("/"))
-        component_parts.append("index.php")
+        if slug == "root":
+            component_parts.append("root.php")
+        else:
+            component_parts.extend(slug.split("/"))
+            component_parts.append("index.php")
         source_component = safe_target(source, Path(*component_parts))
         source_component.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(generated_component, source_component)

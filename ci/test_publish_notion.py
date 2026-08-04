@@ -808,7 +808,7 @@ class PublicationMergeTests(unittest.TestCase):
             self.assertEqual(
                 [
                     "Root/HTML/Component/Root.php",
-                    "Root/HTML/Component/hi/root/index.php",
+                    "Root/HTML/Component/hi/root.php",
                 ],
                 prepared["source_components"],
             )
@@ -822,7 +822,7 @@ class PublicationMergeTests(unittest.TestCase):
                 (source / "Root/HTML/Component/root/index.php").exists()
             )
             self.assertTrue(
-                (source / "Root/HTML/Component/hi/root/index.php").is_file()
+                (source / "Root/HTML/Component/hi/root.php").is_file()
             )
 
             stage = Path(temp_dir) / "stage"
@@ -837,7 +837,7 @@ class PublicationMergeTests(unittest.TestCase):
             self.assertEqual(
                 [
                     "Root/HTML/Component/root.php",
-                    "Root/HTML/Component/hi/root/index.php",
+                    "Root/HTML/Component/hi/root.php",
                 ],
                 staged["source_components"],
             )

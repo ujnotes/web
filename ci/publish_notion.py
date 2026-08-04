@@ -460,6 +460,10 @@ def prepare_source(args):
         generated_text = generated_text.replace(
             "<?php require('../JS/Base/page.js'); ?>", ""
         )
+        if slug == "root" and variant["language"] != "en":
+            generated_text = generated_text.replace(
+                "<?php require('../HTML/Fragment/Component_bottom.php') ?>", ""
+            )
 
         source_component.write_text(
             "\n".join(line.rstrip() for line in generated_text.splitlines()) + "\n",

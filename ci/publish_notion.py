@@ -319,30 +319,110 @@ def add_sitemap_url(path, url):
     path.write_text(content, encoding="utf-8", newline="\n")
 
 
+def article_variants(metadata):
+    """Return normalized variants, including legacy single-article bundles."""
+    variants = metadata.get("variants") or [
+        {
+            "slug": metadata["slug"],
+            "title": metadata.get("title", ""),
+            "description": metadata.get("description", ""),
+            "language": metadata.get("language", "en"),
+            "component": metadata["component"],
+        }
+    ]
+    normalized = []
+    seen = set()
+    for raw_variant in variants:
+        variant = dict(raw_variant)
+        variant["slug"] = validate_slug(variant.get("slug", metadata["slug"]))
+        variant["language"] = str(variant.get("language", "en")).lower()
+        if variant["slug"] != metadata["slug"]:
+            raise RuntimeError("All translation variants must use the base article slug")
+        if variant["language"] in seen:
+            raise RuntimeError(f"Duplicate article language: {variant['language']!r}")
+        if not variant.get("component"):
+            raise RuntimeError(f"Article variant {variant['language']!r} has no component")
+        variant["public_slug"] = (
+            variant["slug"]
+            if variant["language"] == "en"
+            else f"{variant['language']}/{variant['slug']}"
+        )
+        seen.add(variant["language"])
+        normalized.append(variant)
+    if "en" not in seen:
+        raise RuntimeError("Nested translation bundles require an English base variant")
+    return normalized
+
+
+def merge_translation_manifest(path, slug, languages):
+    path = Path(path)
+    lines = read_lines(path) if path.is_file() else []
+    old_header = lines[0].split("\t") if lines else ["TranslationGroup", "en"]
+    if old_header[0] != "TranslationGroup":
+        raise RuntimeError(f"Invalid translation manifest header: {path}")
+    header = list(old_header)
+    for language in languages:
+        if language not in header:
+            header.append(language)
+    output = ["\t".join(header)]
+    found = False
+    for line in lines[1:]:
+        fields = line.split("\t")
+        if fields and fields[0] == slug:
+            values = {
+                name: fields[index] if index < len(fields) else ""
+                for index, name in enumerate(old_header)
+            }
+            for language in header[1:]:
+                values[language] = ""
+            values.update({language: "published" for language in languages})
+            values["TranslationGroup"] = slug
+            output.append("\t".join(values.get(name, "") for name in header))
+            found = True
+        else:
+            fields.extend([""] * (len(header) - len(fields)))
+            output.append("\t".join(fields[: len(header)]))
+    if not found:
+        output.append(
+            "\t".join(
+                [slug]
+                + [
+                    "published" if language in languages else ""
+                    for language in header[1:]
+                ]
+            )
+        )
+    write_lines(path, output)
+
+
 def prepare_source(args):
     metadata_path, metadata = read_metadata(args.metadata)
     if metadata.get("no_work"):
         return
     slug = metadata["slug"]
-    language = metadata.get("language", "en")
+    variants = article_variants(metadata)
     bundle = Path(args.bundle).resolve()
     source = Path(args.source).resolve()
 
-    generated_component = safe_target(bundle, metadata["component"])
-    component_parts = ["Root", "HTML", "Component"]
-    if language != "en":
-        component_parts.append(language)
-    component_parts.extend(slug.split("/"))
-    component_parts.append("index.php")
-    source_component = safe_target(source, Path(*component_parts))
-    source_component.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(generated_component, source_component)
-    generated_text = source_component.read_text(encoding="utf-8")
-    source_component.write_text(
-        "\n".join(line.rstrip() for line in generated_text.splitlines()) + "\n",
-        encoding="utf-8",
-        newline="\n",
-    )
+    source_components = []
+    for variant in variants:
+        generated_component = safe_target(bundle, variant["component"])
+        component_parts = ["Root", "HTML", "Component"]
+        if variant["language"] != "en":
+            component_parts.append(variant["language"])
+        component_parts.extend(slug.split("/"))
+        component_parts.append("index.php")
+        source_component = safe_target(source, Path(*component_parts))
+        source_component.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(generated_component, source_component)
+        generated_text = source_component.read_text(encoding="utf-8")
+        source_component.write_text(
+            "\n".join(line.rstrip() for line in generated_text.splitlines()) + "\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+        variant["source_component"] = source_component.relative_to(source).as_posix()
+        source_components.append(variant["source_component"])
 
     api_key = os.environ.get("NOTION_API_KEY")
     notion_cover = (
@@ -354,42 +434,98 @@ def prepare_source(args):
     if cover is None:
         cover_relative = Path("Root", "Resource", *slug.split("/"), "index.jpg")
         cover = resolve_case_insensitive(source, cover_relative)
-    component_text = source_component.read_text(encoding="utf-8")
+    base_component = safe_target(
+        source,
+        next(
+            variant["source_component"]
+            for variant in variants
+            if variant["language"] == "en"
+        ),
+    )
+    component_text = base_component.read_text(encoding="utf-8")
     cover_is_file = cover is not None and cover.is_file()
     has_cover = cover_is_file or "Component_cover.php" in component_text
-    if cover_is_file and "Component_cover.php" not in component_text:
-        alt = metadata.get("title", "").replace("\\", "\\\\").replace("'", "\\'")
-        markup = f"<?php $alt='{alt}'; require('../HTML/Fragment/Component_cover.php') ?>"
-        source_component.write_text(
-            markup + "\n\n" + component_text,
-            encoding="utf-8",
-            newline="\n",
-        )
+    if cover_is_file:
+        for variant in variants:
+            source_component = safe_target(source, variant["source_component"])
+            component_text = source_component.read_text(encoding="utf-8")
+            if "Component_cover.php" not in component_text:
+                alt = variant.get("title", metadata.get("title", ""))
+                alt = alt.replace("\\", "\\\\").replace("'", "\\'")
+                markup = (
+                    f"<?php $alt='{alt}'; "
+                    "require('../HTML/Fragment/Component_cover.php') ?>"
+                )
+                source_component.write_text(
+                    markup + "\n\n" + component_text,
+                    encoding="utf-8",
+                    newline="\n",
+                )
 
-    suffix = "" if language == "en" else f"_{language}"
-    bundle_id = safe_target(bundle, Path("Config", f"ID{suffix}.tsv"))
-    source_id = safe_target(source, Path("Config", f"ID{suffix}.tsv"))
-    _, generated_row = find_article_row(bundle_id, slug)
-    # NCMS renders queued pages with Status=publish. The source repository is
-    # the durable post-publication state, so never commit that transient status:
-    # navigation only exposes rows marked published.
-    merged_row = merge_id_row(source_id, slug, generated_row, status="published")
-    source_url = safe_target(source, Path("Config", f"Url{suffix}.tsv"))
-    if language != "en" and not read_lines(source_url):
-        default_url = safe_target(source, Path("Config", "Url.tsv"))
-        write_lines(source_url, read_lines(default_url))
-    merge_url_row(source_url, slug, has_cover)
+    source_ids = []
+    source_urls = []
+    for variant in variants:
+        language = variant["language"]
+        suffix = "" if language == "en" else f"_{language}"
+        bundle_id = safe_target(bundle, Path("Config", f"ID{suffix}.tsv"))
+        source_id = safe_target(source, Path("Config", f"ID{suffix}.tsv"))
+        if not source_id.is_file():
+            write_lines(source_id, [read_lines(bundle_id)[0]])
+        _, generated_row = find_article_row(bundle_id, slug)
+        variant["article_row"] = merge_id_row(
+            source_id, slug, generated_row, status="published"
+        )
+        variant["source_id"] = source_id.relative_to(source).as_posix()
+        source_ids.append(variant["source_id"])
+
+        source_url = safe_target(source, Path("Config", f"Url{suffix}.tsv"))
+        if not source_url.is_file() or not read_lines(source_url):
+            default_url = safe_target(source, Path("Config", "Url.tsv"))
+            write_lines(source_url, read_lines(default_url))
+        merge_url_row(source_url, slug, has_cover)
+        variant["source_url"] = source_url.relative_to(source).as_posix()
+        source_urls.append(variant["source_url"])
 
     source_sitemap = safe_target(source, Path("Root", "Site", "SiteMap.xml"))
-    language_prefix = "" if language == "en" else f"/{language}"
-    add_sitemap_url(
-        source_sitemap,
-        f"{args.base_url.rstrip('/')}{language_prefix}/{slug}",
-    )
-    affected_slugs = (
-        [slug] if language != "en" else affected_navigation_slugs(source_id, slug)
-    )
+    for variant in variants:
+        add_sitemap_url(
+            source_sitemap,
+            f"{args.base_url.rstrip('/')}/{variant['public_slug']}",
+        )
 
+    translations = safe_target(source, Path("Config", "Translations.tsv"))
+    merge_translation_manifest(
+        translations, slug, [variant["language"] for variant in variants]
+    )
+    base_id = safe_target(
+        source,
+        next(
+            variant["source_id"]
+            for variant in variants
+            if variant["language"] == "en"
+        ),
+    )
+    affected_slugs = affected_navigation_slugs(base_id, slug)
+    render_slugs = list(affected_slugs)
+    render_slugs.extend(
+        variant["public_slug"]
+        for variant in variants
+        if variant["language"] != "en"
+    )
+    render_slugs = list(dict.fromkeys(render_slugs))
+
+    source_paths = list(
+        dict.fromkeys(
+            source_components
+            + source_ids
+            + source_urls
+            + [
+                translations.relative_to(source).as_posix(),
+                source_sitemap.relative_to(source).as_posix(),
+            ]
+            + ([cover.relative_to(source).as_posix()] if cover_is_file else [])
+        )
+    )
     metadata.update(
         {
             "has_cover": has_cover,
@@ -397,12 +533,19 @@ def prepare_source(args):
             "source_cover": (
                 cover.relative_to(source).as_posix() if cover_is_file else None
             ),
-            "source_component": source_component.relative_to(source).as_posix(),
-            "source_id": source_id.relative_to(source).as_posix(),
-            "source_url": source_url.relative_to(source).as_posix(),
+            "variants": variants,
+            "source_component": source_components[0],
+            "source_components": source_components,
+            "source_id": source_ids[0],
+            "source_ids": list(dict.fromkeys(source_ids)),
+            "source_url": source_urls[0],
+            "source_urls": list(dict.fromkeys(source_urls)),
+            "source_translations": translations.relative_to(source).as_posix(),
             "source_sitemap": source_sitemap.relative_to(source).as_posix(),
-            "article_row": merged_row,
+            "article_row": variants[0]["article_row"],
             "affected_slugs": affected_slugs,
+            "render_slugs": render_slugs,
+            "source_paths": source_paths,
         }
     )
     write_metadata(metadata_path, metadata)
@@ -435,48 +578,57 @@ def create_stage(args):
     normalize_tree_lowercase(stage / "Root" / "HTML" / "Component")
     normalize_tree_lowercase(stage / "Root" / "Resource")
 
-    # Templates need the complete ID catalog for navigation. The per-run render
-    # scope belongs in a separate manifest so unrelated published rows stay visible.
-    source_id = safe_target(stage, metadata["source_id"])
-    read_lines(source_id)
+    variants = article_variants(metadata)
+    render_slugs = (
+        metadata.get("render_slugs")
+        if len(variants) > 1
+        else metadata.get("affected_slugs")
+    )
+    if not render_slugs:
+        variant = article_variants(metadata)[0]
+        render_slugs = [variant["public_slug"]]
     render_list = safe_target(stage, Path("Config", "Render.lsv"))
-    language = metadata.get("language", "en")
-    render_slugs = metadata.get("affected_slugs", [metadata["slug"]])
-    if language != "en":
-        render_slugs = [f"{language}/{metadata['slug']}"]
     write_lines(render_list, render_slugs)
 
-    # A cover may use legacy title casing in the source repository. Place it
-    # directly at its public build destination before selecting download URLs.
     if metadata.get("source_cover"):
         source_cover = safe_target(source, metadata["source_cover"])
-        staged_cover = safe_target(
-            stage, Path("public", *metadata["slug"].split("/"), "index.jpg")
-        )
-        staged_cover.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source_cover, staged_cover)
+        for variant in variants:
+            staged_cover = safe_target(
+                stage,
+                Path("public", *variant["public_slug"].split("/"), "index.jpg"),
+            )
+            staged_cover.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_cover, staged_cover)
 
-    source_url = safe_target(stage, metadata["source_url"])
-    url_header = read_lines(source_url)[0]
+    default_url = safe_target(stage, Path("Config", "Url.tsv"))
+    default_lines = read_lines(default_url)
+    if not default_lines:
+        raise RuntimeError("Default URL manifest is empty")
+    url_header = default_lines[0]
     url_lines = [url_header]
-    for line in read_lines(source_url)[1:]:
-        fields = line.split("	")
-        row_path = fields[0].replace("\\", "/").rstrip("/")
-        is_script = len(fields) >= 3 and fields[1:3] == ["script", "js"]
-        selected = row_path == metadata["slug"] or (not row_path and is_script)
-        artifact = staged_url_artifact(stage, fields)
-        if selected and not (artifact and artifact.is_file()):
-            url_lines.append(line)
-    write_lines(source_url, url_lines)
-    if language != "en":
-        tiggu_url = safe_target(stage, Path("Config", "Url.tsv"))
-        prefixed_lines = [url_header]
-        for line in url_lines[1:]:
+    seen_rows = set()
+    for variant in variants:
+        source_url = safe_target(stage, variant.get("source_url", metadata["source_url"]))
+        for line in read_lines(source_url)[1:]:
             fields = line.split("\t")
-            if fields[0]:
-                fields[0] = f"{language}/{fields[0].lstrip('/')}"
-            prefixed_lines.append("\t".join(fields))
-        write_lines(tiggu_url, prefixed_lines)
+            row_path = fields[0].replace("\\", "/").rstrip("/")
+            is_script = len(fields) >= 3 and fields[1:3] == ["script", "js"]
+            selected = row_path == metadata["slug"] or (
+                variant["language"] == "en" and not row_path and is_script
+            )
+            if not selected:
+                continue
+            if row_path and variant["language"] != "en":
+                fields[0] = f"{variant['language']}/{fields[0].lstrip('/')}"
+            artifact = staged_url_artifact(stage, fields)
+            normalized_line = "\t".join(fields)
+            if normalized_line not in seen_rows and not (
+                artifact and artifact.is_file()
+            ):
+                url_lines.append(normalized_line)
+                seen_rows.add(normalized_line)
+    write_lines(default_url, url_lines)
+
 
 def merge_firebase(path, slug, has_cover, add_shortcut=True):
     path = Path(path)
@@ -569,21 +721,30 @@ def public_html_exists(root, slug):
 def publish_artifacts(args):
     metadata_path, metadata = read_metadata(args.metadata)
     slug = metadata["slug"]
-    language = metadata.get("language", "en")
-    public_slug = slug if language == "en" else f"{language}/{slug}"
+    variants = article_variants(metadata)
+    variants_by_public_slug = {
+        variant["public_slug"]: variant for variant in variants
+    }
     stage = Path(args.stage).resolve()
     public_repo = Path(args.public_repo).resolve()
     stage_public = stage / "public"
     public_root = public_repo / "public"
     public_paths = ["firebase.json", "public/sitemap.xml"]
-    article_json = None
+    variant_hashes = {}
 
-    for affected_slug in metadata.get("affected_slugs", [slug]):
-        artifact_slug = (
-            affected_slug
-            if language == "en"
-            else f"{language}/{affected_slug}"
+    artifact_slugs = (
+        metadata.get("render_slugs")
+        if len(variants) > 1
+        else metadata.get("affected_slugs")
+    )
+    if not artifact_slugs:
+        artifact_slugs = list(metadata.get("affected_slugs", [slug]))
+        artifact_slugs.extend(
+            variant["public_slug"]
+            for variant in variants
+            if variant["language"] != "en"
         )
+    for artifact_slug in dict.fromkeys(artifact_slugs):
         stage_html, stage_json = rendered_page_paths(stage_public, artifact_slug)
         for artifact in (stage_html, stage_json):
             if artifact.stat().st_size == 0:
@@ -603,79 +764,116 @@ def publish_artifacts(args):
                 public_json.relative_to(public_repo).as_posix(),
             ]
         )
-        if affected_slug == slug:
-            article_json = stage_json
 
-    if article_json is None:
-        raise RuntimeError(f"Published article was not in affected pages: {slug}")
-    with article_json.open(encoding="utf-8") as source:
-        built_json = json.load(source)
-    if str(built_json.get("desc", "")) != str(metadata.get("description", "")):
-        raise RuntimeError("Built JSON description does not match Notion")
-    content = str(built_json.get("content", ""))
-    for queued_slug in metadata.get("queued_slugs", []):
-        if (
-            queued_slug
-            and queued_slug != slug
-            and queued_slug in content
-            and not public_html_exists(public_root, queued_slug)
-        ):
-            raise RuntimeError(
-                f"Built article links to queued unpublished page {queued_slug!r}"
-            )
+        variant = variants_by_public_slug.get(artifact_slug)
+        if variant:
+            with stage_json.open(encoding="utf-8") as source_file:
+                built_json = json.load(source_file)
+            if str(built_json.get("desc", "")) != str(
+                variant.get("description", "")
+            ):
+                raise RuntimeError(
+                    f"Built JSON description does not match Notion for "
+                    f"{variant['language']}"
+                )
+            content = str(built_json.get("content", ""))
+            for queued_slug in metadata.get("queued_slugs", []):
+                if (
+                    queued_slug
+                    and queued_slug != slug
+                    and queued_slug in content
+                    and not public_html_exists(public_root, queued_slug)
+                ):
+                    raise RuntimeError(
+                        f"Built article links to queued unpublished page "
+                        f"{queued_slug!r}"
+                    )
+            variant_hashes[artifact_slug] = hashlib.sha256(
+                stage_json.read_bytes()
+            ).hexdigest()
 
-    stage_jpg = safe_target(stage, Path("public", *slug.split("/"), "index.jpg"))
-    if metadata["has_cover"]:
-        if not stage_jpg.is_file() or stage_jpg.stat().st_size == 0:
-            raise RuntimeError(f"Expected cover artifact is missing: {stage_jpg}")
-        public_jpg = safe_target(
-            public_repo, Path("public", *slug.split("/"), "index.jpg")
+    missing_variants = set(variants_by_public_slug) - set(variant_hashes)
+    if missing_variants:
+        raise RuntimeError(
+            f"Rendered translation variants are missing: {sorted(missing_variants)}"
         )
-        public_jpg.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(stage_jpg, public_jpg)
-        public_paths.append(public_jpg.relative_to(public_repo).as_posix())
+
+    if metadata["has_cover"]:
+        for variant in variants:
+            public_slug = variant["public_slug"]
+            stage_jpg = safe_target(
+                stage, Path("public", *public_slug.split("/"), "index.jpg")
+            )
+            if not stage_jpg.is_file() or stage_jpg.stat().st_size == 0:
+                raise RuntimeError(f"Expected cover artifact is missing: {stage_jpg}")
+            public_jpg = safe_target(
+                public_repo,
+                Path("public", *public_slug.split("/"), "index.jpg"),
+            )
+            public_jpg.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(stage_jpg, public_jpg)
+            public_paths.append(public_jpg.relative_to(public_repo).as_posix())
 
     firebase_path = public_repo / "firebase.json"
-    merge_firebase(
-        firebase_path,
-        public_slug,
-        metadata["has_cover"],
-        add_shortcut=language == "en",
-    )
     public_sitemap = public_repo / "public" / "sitemap.xml"
-    add_sitemap_url(public_sitemap, f"{args.base_url.rstrip('/')}/{public_slug}")
+    for variant in variants:
+        public_slug = variant["public_slug"]
+        merge_firebase(
+            firebase_path,
+            public_slug,
+            metadata["has_cover"],
+            add_shortcut=variant["language"] == "en",
+        )
+        add_sitemap_url(
+            public_sitemap, f"{args.base_url.rstrip('/')}/{public_slug}"
+        )
 
     metadata["public_paths"] = list(dict.fromkeys(public_paths))
-    metadata["json_sha256"] = hashlib.sha256(article_json.read_bytes()).hexdigest()
+    metadata["variant_hashes"] = variant_hashes
+    metadata["json_sha256"] = variant_hashes[slug]
     write_metadata(metadata_path, metadata)
 
 
 def verify_live(args):
     _, metadata = read_metadata(args.metadata)
-    slug = metadata["slug"]
-    expected_hash = metadata["json_sha256"]
-    language = metadata.get("language", "en")
-    public_slug = slug if language == "en" else f"{language}/{slug}"
-    url = f"{args.base_url.rstrip('/')}/{public_slug}.json"
+    expected_hashes = metadata.get("variant_hashes") or {
+        article_variants(metadata)[0]["public_slug"]: metadata["json_sha256"]
+    }
     deadline = time.monotonic() + args.timeout
-    last_error = "no response"
+    pending = dict(expected_hashes)
+    errors = {public_slug: "no response" for public_slug in pending}
 
-    while time.monotonic() < deadline:
-        request = urllib.request.Request(
-            f"{url}?ncms_verify={int(time.time())}",
-            headers={"Cache-Control": "no-cache", "User-Agent": "ujnotes-ncms-publisher"},
+    while pending and time.monotonic() < deadline:
+        for public_slug, expected_hash in list(pending.items()):
+            url = f"{args.base_url.rstrip('/')}/{public_slug}.json"
+            request = urllib.request.Request(
+                f"{url}?ncms_verify={int(time.time())}",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "User-Agent": "ujnotes-ncms-publisher",
+                },
+            )
+            try:
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    live_hash = hashlib.sha256(response.read()).hexdigest()
+                if live_hash == expected_hash:
+                    print(f"Verified live article: {url}")
+                    pending.pop(public_slug)
+                    continue
+                errors[public_slug] = (
+                    f"hash {live_hash} did not match {expected_hash}"
+                )
+            except (urllib.error.URLError, TimeoutError) as error:
+                errors[public_slug] = str(error)
+        if pending:
+            time.sleep(5)
+
+    if pending:
+        details = "; ".join(
+            f"{public_slug}: {errors[public_slug]}"
+            for public_slug in sorted(pending)
         )
-        try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                live_hash = hashlib.sha256(response.read()).hexdigest()
-            if live_hash == expected_hash:
-                print(f"Verified live article: {url}")
-                return
-            last_error = f"hash {live_hash} did not match {expected_hash}"
-        except (urllib.error.URLError, TimeoutError) as error:
-            last_error = str(error)
-        time.sleep(5)
-    raise RuntimeError(f"Deployment did not match {url}: {last_error}")
+        raise RuntimeError(f"Deployment did not match all variants: {details}")
 
 
 def main(argv=None):

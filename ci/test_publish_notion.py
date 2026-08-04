@@ -541,6 +541,138 @@ class PublicationMergeTests(unittest.TestCase):
                     firebase_path, "world/example", has_cover=False
                 )
 
+    def test_nested_translation_bundle_is_published_atomically(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            bundle, source, public_repo, metadata_path = self.make_fixture(temp_dir)
+            slug = "world/example"
+            write(
+                bundle / "HTML/Component/hi/world/example/index.php",
+                "<div id='message'>उदाहरण</div>",
+            )
+            write(
+                bundle / "Config/ID_hi.tsv",
+                "Status\tId\tLabel\tTitle\tJS\tDescription\tType\n"
+                "publish\tworld/example\tउदाहरण\tहिंदी उदाहरण\t0\tहिंदी विवरण\tarticle\n",
+            )
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            metadata["variants"] = [
+                {
+                    "slug": slug,
+                    "title": "Example",
+                    "description": "Description",
+                    "language": "en",
+                    "component": "HTML/Component/world/example/index.php",
+                },
+                {
+                    "slug": slug,
+                    "title": "हिंदी उदाहरण",
+                    "description": "हिंदी विवरण",
+                    "language": "hi",
+                    "component": "HTML/Component/hi/world/example/index.php",
+                },
+            ]
+            write(metadata_path, json.dumps(metadata, ensure_ascii=False))
+
+            publish_notion.prepare_source(
+                SimpleNamespace(
+                    bundle=str(bundle),
+                    metadata=str(metadata_path),
+                    source=str(source),
+                    base_url="https://ujnotes.com",
+                )
+            )
+            prepared = json.loads(metadata_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                [
+                    "Root/HTML/Component/world/example/index.php",
+                    "Root/HTML/Component/hi/world/example/index.php",
+                ],
+                prepared["source_components"],
+            )
+            hindi_id = (source / "Config/ID_hi.tsv").read_text(encoding="utf-8")
+            self.assertIn(
+                "published\tworld/example\tउदाहरण\tहिंदी उदाहरण",
+                hindi_id,
+            )
+            translations = (
+                source / "Config/Translations.tsv"
+            ).read_text(encoding="utf-8")
+            self.assertEqual(
+                "TranslationGroup\ten\thi\n"
+                "world/example\tpublished\tpublished\n",
+                translations,
+            )
+            self.assertIn(
+                "https://ujnotes.com/hi/world/example",
+                (source / "Root/Site/SiteMap.xml").read_text(encoding="utf-8"),
+            )
+
+            stage = Path(temp_dir) / "stage"
+            publish_notion.create_stage(
+                SimpleNamespace(
+                    metadata=str(metadata_path),
+                    source=str(source),
+                    stage=str(stage),
+                )
+            )
+            self.assertEqual(
+                ["world/example", "hi/world/example"],
+                (stage / "Config/Render.lsv")
+                .read_text(encoding="utf-8")
+                .splitlines(),
+            )
+            write(
+                stage / "public/world/example/index.html",
+                "<html>Example</html>",
+            )
+            write(
+                stage / "public/world/example/index.json",
+                json.dumps({"desc": "Description", "content": "Example"}),
+            )
+            write(
+                stage / "public/hi/world/example/index.html",
+                "<html>उदाहरण</html>",
+            )
+            write(
+                stage / "public/hi/world/example/index.json",
+                json.dumps(
+                    {"desc": "हिंदी विवरण", "content": "उदाहरण"},
+                    ensure_ascii=False,
+                ),
+            )
+
+            publish_notion.publish_artifacts(
+                SimpleNamespace(
+                    metadata=str(metadata_path),
+                    stage=str(stage),
+                    public_repo=str(public_repo),
+                    base_url="https://ujnotes.com",
+                )
+            )
+
+            published = json.loads(metadata_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                {"world/example", "hi/world/example"},
+                set(published["variant_hashes"]),
+            )
+            firebase = json.loads(
+                (public_repo / "firebase.json").read_text(encoding="utf-8")
+            )["hosting"]
+            self.assertIn(
+                {
+                    "source": "/hi/world/example.json",
+                    "destination": "/hi/world/example/index.json",
+                },
+                firebase["rewrites"],
+            )
+            self.assertTrue(
+                (
+                    public_repo
+                    / "public/hi/world/example/index.json"
+                ).is_file()
+            )
+
+
     def test_renderer_mounts_normalized_stage(self):
         project = Path(__file__).resolve().parents[1]
         compose = (project / "compose-dev.yaml").read_text(encoding="utf-8")
@@ -557,7 +689,7 @@ class PublicationMergeTests(unittest.TestCase):
             workflow,
         )
         self.assertIn('ln -s Root "$STAGE_DIR/root"', workflow)
-        self.assertIn('d.get("source_cover")', workflow)
+        self.assertIn('["source_paths"]', workflow)
         self.assertIn("paths:\n      - .github/workflows/publish-notion.yml", workflow)
         self.assertIn("      - ci/publish_notion.py", workflow)
         self.assertIn('github.event_name }}" != "workflow_dispatch"', workflow)

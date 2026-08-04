@@ -181,9 +181,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          component=$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["source_component"])' "$METADATA_FILE")
-          docker compose -f project/compose-dev.yaml -p ujnotes-actions exec -T web-site \
-            php -l "/app/site/project/$component"
+          while IFS= read -r component; do
+            docker compose -f project/compose-dev.yaml -p ujnotes-actions exec -T web-site \
+              php -l "/app/site/project/$component"
+          done < <(python -c 'import json,sys; print("\n".join(json.load(open(sys.argv[1], encoding="utf-8"))["source_components"]))' "$METADATA_FILE")
           docker compose -f project/compose-dev.yaml -p ujnotes-actions exec -T web-site \
             /app/tiggu/build.sh /app/.ncms-publish/site
 
@@ -220,7 +221,7 @@ jobs:
           git -C site/project config user.email "ujnotes-publisher[bot]@users.noreply.github.com"
           while IFS= read -r path; do
             git -C site/project add -- "$path"
-          done < <(python -c 'import json,sys; d=json.load(open(sys.argv[1], encoding="utf-8")); paths=[d[key] for key in ("source_component", "source_id", "source_url", "source_sitemap")]; paths.extend([d["source_cover"]] if d.get("source_cover") else []); print("\n".join(paths))' "$METADATA_FILE")
+          done < <(python -c 'import json,sys; print("\n".join(json.load(open(sys.argv[1], encoding="utf-8"))["source_paths"]))' "$METADATA_FILE")
           git -C site/project diff --cached --check
           if ! git -C site/project diff --cached --quiet; then
             slug=$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["slug"])' "$METADATA_FILE")

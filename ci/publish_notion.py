@@ -448,12 +448,12 @@ def prepare_source(args):
         component_parts = ["Root", "HTML", "Component"]
         if variant["language"] != "en":
             component_parts.append(variant["language"])
-        if slug == "root":
-            component_parts.append("root.php")
-        else:
-            component_parts.extend(slug.split("/"))
-            component_parts.append("index.php")
-        source_component = safe_target(source, Path(*component_parts))
+        component_parts.extend(slug.split("/"))
+        component_parts.append("index.php")
+        component_relative = Path(*component_parts)
+        source_component = resolve_case_insensitive(source, component_relative)
+        if source_component is None:
+            source_component = safe_target(source, component_relative)
         source_component.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(generated_component, source_component)
         generated_text = source_component.read_text(encoding="utf-8")

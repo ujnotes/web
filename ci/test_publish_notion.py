@@ -176,6 +176,32 @@ class PublicationMergeTests(unittest.TestCase):
             self.assertIn("https://ujnotes.com/about", sitemap)
             self.assertIn("https://ujnotes.com/world/example", sitemap)
 
+    def test_source_merge_reuses_legacy_component_casing(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            bundle, source, _, metadata_path = self.make_fixture(temp_dir)
+            legacy_component = (
+                source / "Root/HTML/Component/World/Example/index.php"
+            )
+            write(legacy_component, "<div>Legacy</div>")
+
+            publish_notion.prepare_source(
+                SimpleNamespace(
+                    bundle=str(bundle),
+                    metadata=str(metadata_path),
+                    source=str(source),
+                    base_url="https://ujnotes.com",
+                )
+            )
+
+            self.assertIn(
+                "<div id='message'>Example</div>",
+                legacy_component.read_text(encoding="utf-8"),
+            )
+            prepared = json.loads(metadata_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                "Root/HTML/Component/World/Example/index.php",
+                prepared["source_component"],
+            )
     def test_stage_renders_only_affected_pages_and_selected_urls(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             bundle, source, _, metadata_path = self.make_fixture(temp_dir)
@@ -808,7 +834,7 @@ class PublicationMergeTests(unittest.TestCase):
             self.assertEqual(
                 [
                     "Root/HTML/Component/Root.php",
-                    "Root/HTML/Component/hi/root.php",
+                    "Root/HTML/Component/hi/root/index.php",
                 ],
                 prepared["source_components"],
             )
@@ -822,7 +848,7 @@ class PublicationMergeTests(unittest.TestCase):
                 (source / "Root/HTML/Component/root/index.php").exists()
             )
             self.assertTrue(
-                (source / "Root/HTML/Component/hi/root.php").is_file()
+                (source / "Root/HTML/Component/hi/root/index.php").is_file()
             )
 
             stage = Path(temp_dir) / "stage"
@@ -837,7 +863,7 @@ class PublicationMergeTests(unittest.TestCase):
             self.assertEqual(
                 [
                     "Root/HTML/Component/root.php",
-                    "Root/HTML/Component/hi/root.php",
+                    "Root/HTML/Component/hi/root/index.php",
                 ],
                 staged["source_components"],
             )

@@ -6,6 +6,7 @@ on:
     paths:
       - .github/workflows/publish-notion.yml
       - ci/publish_notion.py
+      - ci/validate_sitemap.py
   workflow_dispatch:
     inputs:
       slug:
@@ -198,6 +199,12 @@ jobs:
             --base-url "$BASE_URL"
           python -m json.tool project/build/firebase.json >/dev/null
           python -c 'import xml.etree.ElementTree as ET; ET.parse("project/build/public/sitemap.xml")'
+          python project/ci/validate_sitemap.py \
+            --sitemap project/build/public/sitemap.xml \
+            --translations site/project/Config/Translations.tsv \
+            --public-root project/build/public \
+            --firebase project/build/firebase.json \
+            --base-url "$BASE_URL"
           git -C site/project diff --check
           git -C project/build diff --check
 
@@ -253,6 +260,10 @@ jobs:
             --metadata "$METADATA_FILE" \
             --base-url "$BASE_URL" \
             --timeout 600
+          python project/ci/validate_sitemap.py \
+            --sitemap project/build/public/sitemap.xml \
+            --base-url "$BASE_URL" \
+            --live
 
       - name: Mark Notion page published
         if: steps.render.outputs.has_work == 'true' && steps.render.outputs.publish_changes == 'true'

@@ -780,7 +780,8 @@ class PublicationMergeTests(unittest.TestCase):
             )
             write(
                 bundle / "HTML/Component/hi/root/index.php",
-                "<div id='message'>हिन्दी मुखपृष्ठ</div>",
+                "<div id='message'>हिन्दी मुखपृष्ठ</div>\n"
+                "<?php require('../JS/Base/page.js'); ?>",
             )
             write(
                 bundle / "Config/ID.tsv",
@@ -847,8 +848,11 @@ class PublicationMergeTests(unittest.TestCase):
             self.assertFalse(
                 (source / "Root/HTML/Component/root/index.php").exists()
             )
-            self.assertTrue(
-                (source / "Root/HTML/Component/hi/root/index.php").is_file()
+            hindi_root = source / "Root/HTML/Component/hi/root/index.php"
+            self.assertTrue(hindi_root.is_file())
+            self.assertNotIn(
+                "../JS/Base/page.js",
+                hindi_root.read_text(encoding="utf-8"),
             )
 
             stage = Path(temp_dir) / "stage"

@@ -457,6 +457,9 @@ def prepare_source(args):
         source_component.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(generated_component, source_component)
         generated_text = source_component.read_text(encoding="utf-8")
+        generated_text = generated_text.replace(
+            "<?php require('../JS/Base/page.js'); ?>", ""
+        )
 
         source_component.write_text(
             "\n".join(line.rstrip() for line in generated_text.splitlines()) + "\n",

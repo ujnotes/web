@@ -630,7 +630,8 @@ def publish_artifacts(args):
         public_paths.append(public_jpg.relative_to(public_repo).as_posix())
 
     firebase_path = public_repo / "firebase.json"
-    merge_firebase(firebase_path, public_slug, metadata["has_cover"])
+    if language == "en":
+        merge_firebase(firebase_path, public_slug, metadata["has_cover"])
     public_sitemap = public_repo / "public" / "sitemap.xml"
     add_sitemap_url(public_sitemap, f"{args.base_url.rstrip('/')}/{public_slug}")
 

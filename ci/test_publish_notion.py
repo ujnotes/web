@@ -642,6 +642,101 @@ class PublicationMergeTests(unittest.TestCase):
                     firebase_path, "world/example", has_cover=False
                 )
 
+    def test_prepare_source_injects_cover_for_flat_jpg_translation(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            bundle = root / "bundle"
+            source = root / "source"
+            metadata_path = root / "article.json"
+            slug = "world/philosophy/life"
+
+            write(
+                bundle / "HTML/Component/world/philosophy/life/index.php",
+                "<?php $alt='A baby'; require('../HTML/Fragment/Component_cover.php') ?>"
+                "\n\n<div id='message'>Life</div>\n",
+            )
+            write(
+                bundle / "HTML/Component/hi/world/philosophy/life/index.php",
+                "<div id='message'>जीवन</div>\n",
+            )
+            write(
+                bundle / "Config/ID.tsv",
+                "Status\tId\tLabel\tTitle\tJS\tDescription\tType\n"
+                "publish\tworld/philosophy/life\tLife\tLife\t0\tDesc\tarticle\n",
+            )
+            write(
+                bundle / "Config/ID_hi.tsv",
+                "Status\tId\tLabel\tTitle\tJS\tDescription\tType\n"
+                "publish\tworld/philosophy/life\tजीवन\tजीवन\t0\tवर्णन\tarticle\n",
+            )
+            write(
+                source / "Config/ID.tsv",
+                "Status\tId\tLabel\tTitle\tJS\tDescription\tType\n"
+                "published\troot\tHome\tHome\t0\tHome\tpage\n",
+            )
+            write(source / "Config/Url.tsv", "Path\tName\tExtension\n")
+            write(
+                source / "Root/Site/SiteMap.xml",
+                "<?xml version='1.0'?><urlset></urlset>",
+            )
+            write(source / "Root/Resource/world/philosophy/life.jpg", "flat-cover")
+            write(
+                metadata_path,
+                json.dumps(
+                    {
+                        "page_id": "page-life",
+                        "slug": slug,
+                        "title": "Life",
+                        "description": "Desc",
+                        "language": "en",
+                        "component": "HTML/Component/world/philosophy/life/index.php",
+                        "queued_slugs": [slug],
+                        "variants": [
+                            {
+                                "slug": slug,
+                                "title": "Life",
+                                "description": "Desc",
+                                "language": "en",
+                                "component": (
+                                    "HTML/Component/world/philosophy/life/index.php"
+                                ),
+                            },
+                            {
+                                "slug": slug,
+                                "title": "जीवन",
+                                "description": "वर्णन",
+                                "language": "hi",
+                                "component": (
+                                    "HTML/Component/hi/world/philosophy/life/index.php"
+                                ),
+                            },
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+
+            publish_notion.prepare_source(
+                SimpleNamespace(
+                    bundle=str(bundle),
+                    metadata=str(metadata_path),
+                    source=str(source),
+                    base_url="https://ujnotes.com",
+                )
+            )
+
+            hindi = (
+                source / "Root/HTML/Component/hi/world/philosophy/life/index.php"
+            ).read_text(encoding="utf-8")
+            self.assertIn("Component_cover.php", hindi)
+            self.assertIn("जीवन", hindi)
+            prepared = json.loads(metadata_path.read_text(encoding="utf-8"))
+            self.assertTrue(prepared["has_cover"])
+            self.assertEqual(
+                "Root/Resource/world/philosophy/life.jpg",
+                prepared["source_cover"],
+            )
+
     def test_nested_translation_bundle_is_published_atomically(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             bundle, source, public_repo, metadata_path = self.make_fixture(temp_dir)
@@ -707,6 +802,11 @@ class PublicationMergeTests(unittest.TestCase):
                 "https://ujnotes.com/hi/world/example",
                 (source / "Root/Site/SiteMap.xml").read_text(encoding="utf-8"),
             )
+            hindi_component = (
+                source / "Root/HTML/Component/hi/world/example/index.php"
+            ).read_text(encoding="utf-8")
+            self.assertIn("Component_cover.php", hindi_component)
+            self.assertIn("उदाहरण", hindi_component)
 
             stage = Path(temp_dir) / "stage"
             publish_notion.create_stage(

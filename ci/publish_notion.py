@@ -152,6 +152,24 @@ def notion_cover_target(source, slug):
     return parent / "index.jpg" if parent is not None else safe_target(source, relative)
 
 
+def resolve_component_cover(source, slug):
+    """Find a cover under Resource/<slug> (index.* or flat slug.*)."""
+    resource_root = Path("Root", "Resource", *slug.split("/"))
+    candidates = [
+        resource_root.with_suffix(".jpg"),
+        resource_root.with_suffix(".png"),
+        resource_root.with_suffix(".svg"),
+        resource_root / "index.jpg",
+        resource_root / "index.png",
+        resource_root / "index.svg",
+    ]
+    for relative in candidates:
+        existing = resolve_case_insensitive(source, relative)
+        if existing is not None and existing.is_file():
+            return existing
+    return None
+
+
 def download_notion_cover(source, slug, page_id, api_key):
     endpoint = f"https://api.notion.com/v1/blocks/{page_id}/children?page_size=100"
     while endpoint:
@@ -501,10 +519,9 @@ def prepare_source(args):
         if api_key
         else None
     )
-    cover = notion_cover
-    if cover is None:
-        cover_relative = Path("Root", "Resource", *slug.split("/"), "index.jpg")
-        cover = resolve_case_insensitive(source, cover_relative)
+    cover = notion_cover if notion_cover is not None else resolve_component_cover(
+        source, slug
+    )
     base_component = safe_target(
         source,
         next(
@@ -513,10 +530,12 @@ def prepare_source(args):
             if variant["language"] == "en"
         ),
     )
-    component_text = base_component.read_text(encoding="utf-8")
+    base_component_text = base_component.read_text(encoding="utf-8")
     cover_is_file = cover is not None and cover.is_file()
-    has_cover = cover_is_file or "Component_cover.php" in component_text
-    if cover_is_file:
+    has_cover = cover_is_file or "Component_cover.php" in base_component_text
+    # Translations often omit the cover callout; inject it whenever the base
+    # article has a cover so runtime can fall back to the base image URL.
+    if has_cover:
         for variant in variants:
             source_component = safe_target(source, variant["source_component"])
             component_text = source_component.read_text(encoding="utf-8")

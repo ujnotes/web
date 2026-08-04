@@ -435,7 +435,7 @@ def create_stage(args):
     language = metadata.get("language", "en")
     render_slugs = metadata.get("affected_slugs", [metadata["slug"]])
     if language != "en":
-        render_slugs = [f"{language}/{slug}" for slug in render_slugs]
+        render_slugs = [f"{language}/{metadata['slug']}"]
     write_lines(render_list, render_slugs)
 
     # A cover may use legacy title casing in the source repository. Place it

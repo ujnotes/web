@@ -571,14 +571,14 @@ def publish_artifacts(args):
     article_json = None
 
     for affected_slug in metadata.get("affected_slugs", [slug]):
-        stage_html, stage_json = rendered_page_paths(stage_public, affected_slug)
+        artifact_slug = (`n            affected_slug`n            if language == "en"`n            else f"{language}/{affected_slug}"`n        )`n        stage_html, stage_json = rendered_page_paths(stage_public, artifact_slug)
         for artifact in (stage_html, stage_json):
             if artifact.stat().st_size == 0:
                 raise RuntimeError(f"Required build artifact is empty: {artifact}")
             validate_rendered_artifact(artifact)
 
         public_html, public_json = public_page_paths(
-            public_root, affected_slug, stage_html, stage_json
+            public_root, artifact_slug, stage_html, stage_json
         )
         public_html.parent.mkdir(parents=True, exist_ok=True)
         public_json.parent.mkdir(parents=True, exist_ok=True)
@@ -623,9 +623,9 @@ def publish_artifacts(args):
         public_paths.append(public_jpg.relative_to(public_repo).as_posix())
 
     firebase_path = public_repo / "firebase.json"
-    merge_firebase(firebase_path, slug, metadata["has_cover"])
+    merge_firebase(firebase_path, public_slug, metadata["has_cover"])
     public_sitemap = public_repo / "public" / "sitemap.xml"
-    add_sitemap_url(public_sitemap, f"{args.base_url.rstrip('/')}/{slug}")
+    add_sitemap_url(public_sitemap, f"{args.base_url.rstrip('/')}/{public_slug}")
 
     metadata["public_paths"] = list(dict.fromkeys(public_paths))
     metadata["json_sha256"] = hashlib.sha256(article_json.read_bytes()).hexdigest()
@@ -636,7 +636,7 @@ def verify_live(args):
     _, metadata = read_metadata(args.metadata)
     slug = metadata["slug"]
     expected_hash = metadata["json_sha256"]
-    url = f"{args.base_url.rstrip('/')}/{slug}.json"
+    language = metadata.get("language", "en")`n    public_slug = slug if language == "en" else f"{language}/{slug}"`n    url = f"{args.base_url.rstrip('/')}/{public_slug}.json"
     deadline = time.monotonic() + args.timeout
     last_error = "no response"
 

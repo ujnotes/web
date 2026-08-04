@@ -480,7 +480,7 @@ def merge_firebase(path, slug, has_cover, add_shortcut=True):
     redirects = hosting.setdefault("redirects", [])
     rewrites = hosting.setdefault("rewrites", [])
 
-    if "/" in slug:
+    if add_shortcut and "/" in slug:
         shortcut = "/" + slug.rsplit("/", 1)[-1]
         destination = "/" + slug
         existing = next((item for item in redirects if item.get("source") == shortcut), None)

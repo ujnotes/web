@@ -11,6 +11,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import urllib.parse
 from pathlib import Path
 
 
@@ -19,6 +20,24 @@ PHP_DIAGNOSTIC = re.compile(
     r"\b(?:PHP\s+)?(?:warning|fatal error|parse error|notice|deprecated)\s*:",
     re.IGNORECASE,
 )
+
+
+ASSET_REFERENCE = re.compile(
+    r"""(?:src|href)\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))""",
+    re.IGNORECASE,
+)
+PUBLISHED_ASSET_EXTENSIONS = {
+    ".css",
+    ".gif",
+    ".jpeg",
+    ".jpg",
+    ".js",
+    ".png",
+    ".svg",
+    ".webp",
+    ".woff",
+    ".woff2",
+}
 
 
 def validate_slug(slug):
@@ -718,6 +737,19 @@ def public_html_exists(root, slug):
     )
 
 
+def rendered_asset_paths(html_path):
+    text = Path(html_path).read_text(encoding="utf-8", errors="replace")
+    assets = set()
+    for match in ASSET_REFERENCE.finditer(text):
+        reference = next(value for value in match.groups() if value is not None)
+        if not reference.startswith("/") or reference.startswith("//"):
+            continue
+        path = urllib.parse.urlsplit(reference).path.lstrip("/")
+        if Path(path).suffix.lower() in PUBLISHED_ASSET_EXTENSIONS:
+            assets.add(path)
+    return assets
+
+
 def publish_artifacts(args):
     metadata_path, metadata = read_metadata(args.metadata)
     slug = metadata["slug"]
@@ -731,6 +763,7 @@ def publish_artifacts(args):
     public_root = public_repo / "public"
     public_paths = ["firebase.json", "public/sitemap.xml"]
     variant_hashes = {}
+    referenced_assets = set()
 
     artifact_slugs = (
         metadata.get("render_slugs")
@@ -751,6 +784,7 @@ def publish_artifacts(args):
                 raise RuntimeError(f"Required build artifact is empty: {artifact}")
             validate_rendered_artifact(artifact)
 
+        referenced_assets.update(rendered_asset_paths(stage_html))
         public_html, public_json = public_page_paths(
             public_root, artifact_slug, stage_html, stage_json
         )
@@ -791,6 +825,18 @@ def publish_artifacts(args):
             variant_hashes[artifact_slug] = hashlib.sha256(
                 stage_json.read_bytes()
             ).hexdigest()
+
+    for asset_path in sorted(referenced_assets):
+        staged_asset = safe_target(stage_public, asset_path)
+        public_asset = safe_target(public_root, asset_path)
+        if staged_asset.is_file():
+            public_asset.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(staged_asset, public_asset)
+            public_paths.append(public_asset.relative_to(public_repo).as_posix())
+        elif not public_asset.is_file():
+            raise RuntimeError(
+                f"Rendered page references a missing local asset: /{asset_path}"
+            )
 
     missing_variants = set(variants_by_public_slug) - set(variant_hashes)
     if missing_variants:

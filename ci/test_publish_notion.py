@@ -458,7 +458,11 @@ class PublicationMergeTests(unittest.TestCase):
                 )
             )
             stage = Path(temp_dir) / "stage"
-            write(stage / "public/world/example/index.html", "<html>Example</html>")
+            write(
+                stage / "public/world/example/index.html",
+                "<html><script src=/script-123.min.js></script>Example</html>",
+            )
+            write(stage / "public/script-123.min.js", "window.example = true;")
             write(
                 stage / "public/world/example/index.json",
                 json.dumps({"desc": "Description", "content": "Example"}),
@@ -491,7 +495,16 @@ class PublicationMergeTests(unittest.TestCase):
             self.assertTrue(
                 (public_repo / "public/world/example/index.json").is_file()
             )
+            self.assertEqual(
+                "window.example = true;",
+                (
+                    public_repo / "public/script-123.min.js"
+                ).read_text(encoding="utf-8"),
+            )
             metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            self.assertIn(
+                "public/script-123.min.js", metadata["public_paths"]
+            )
             self.assertEqual(64, len(metadata["json_sha256"]))
 
     def test_publication_copies_affected_ancestor_pages(self):
@@ -514,7 +527,11 @@ class PublicationMergeTests(unittest.TestCase):
             write(stage / "public/root.json", json.dumps({"content": "Root"}))
             write(stage / "public/world/index.html", "<html>World</html>")
             write(stage / "public/world/index.json", json.dumps({"content": "World"}))
-            write(stage / "public/world/example/index.html", "<html>Example</html>")
+            write(
+                stage / "public/world/example/index.html",
+                "<html><script src=/script-123.min.js></script>Example</html>",
+            )
+            write(stage / "public/script-123.min.js", "window.example = true;")
             write(
                 stage / "public/world/example/index.json",
                 json.dumps({"desc": "Description", "content": "Example"}),

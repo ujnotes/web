@@ -742,8 +742,14 @@ def merge_firebase(path, slug, has_cover, add_shortcut=True):
 def validate_rendered_artifact(path):
     text = Path(path).read_text(encoding="utf-8", errors="replace")
     visible_text = re.sub(r"<[^>]*>", " ", text)
-    if PHP_DIAGNOSTIC.search(visible_text):
-        raise RuntimeError(f"Rendered artifact contains PHP diagnostic: {path}")
+    diagnostic = PHP_DIAGNOSTIC.search(visible_text)
+    if diagnostic:
+        start = max(0, diagnostic.start() - 120)
+        end = min(len(visible_text), diagnostic.end() + 280)
+        context = re.sub(r"\s+", " ", visible_text[start:end]).strip()
+        raise RuntimeError(
+            f"Rendered artifact contains PHP diagnostic: {path}: {context}"
+        )
 
 
 def rendered_page_paths(root, slug):

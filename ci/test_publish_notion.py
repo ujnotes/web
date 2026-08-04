@@ -183,6 +183,10 @@ class PublicationMergeTests(unittest.TestCase):
                 source / "Root/HTML/Component/World/Example/index.php"
             )
             write(legacy_component, "<div>Legacy</div>")
+            write(
+                source / "Root/HTML/Component/world/unrelated/index.php",
+                "<div>Lowercase sibling tree</div>",
+            )
 
             publish_notion.prepare_source(
                 SimpleNamespace(

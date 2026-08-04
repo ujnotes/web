@@ -87,32 +87,35 @@ def write_lines(path, lines):
 
 
 def resolve_case_insensitive(root, relative):
-    """Resolve a relative path without changing or duplicating the source tree."""
+    """Resolve a complete relative path without duplicating legacy casing."""
     root = Path(root).resolve()
-    current = root
-    for requested_part in Path(relative).parts:
+    requested_parts = Path(relative).parts
+
+    def resolve_from(current, index):
+        if index == len(requested_parts):
+            return current
         if not current.is_dir():
             return None
+        requested_part = requested_parts[index]
         matches = [
             child
             for child in current.iterdir()
             if child.name.casefold() == requested_part.casefold()
         ]
-        if not matches:
-            return None
-        exact = next((match for match in matches if match.name == requested_part), None)
-        if exact is not None:
-            current = exact
-        elif len(matches) > 1:
-            resolved_matches = {match.resolve() for match in matches}
-            if len(resolved_matches) > 1:
-                raise RuntimeError(
-                    f"Ambiguous case-insensitive path below {current}: {requested_part}"
-                )
-            current = matches[0]
-        else:
-            current = matches[0]
-    return current
+        matches.sort(key=lambda child: child.name != requested_part)
+        resolved = []
+        for match in matches:
+            candidate = resolve_from(match, index + 1)
+            if candidate is not None:
+                resolved.append(candidate)
+        unique = {candidate.resolve() for candidate in resolved}
+        if len(unique) > 1:
+            raise RuntimeError(
+                f"Ambiguous case-insensitive path below {current}: {requested_part}"
+            )
+        return resolved[0] if resolved else None
+
+    return resolve_from(root, 0)
 
 
 def first_notion_image_url(blocks):

@@ -776,7 +776,7 @@ class PublicationMergeTests(unittest.TestCase):
 
     def test_root_translation_preserves_code_native_english_component(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            bundle, source, _, metadata_path = self.make_fixture(temp_dir)
+            bundle, source, public_repo, metadata_path = self.make_fixture(temp_dir)
             slug = "root"
             write(
                 bundle / "HTML/Component/root/index.php",
@@ -879,12 +879,54 @@ class PublicationMergeTests(unittest.TestCase):
             self.assertTrue(
                 (stage / "Root/HTML/Component/root.php").is_file()
             )
+            self.assertIn(
+                "hi/\tmenu\t",
+                (stage / "Config/Url.tsv").read_text(encoding="utf-8"),
+            )
             source_sitemap = (source / "Root/Site/SiteMap.xml").read_text(
                 encoding="utf-8"
             )
             self.assertIn("https://ujnotes.com", source_sitemap)
             self.assertNotIn("https://ujnotes.com/root", source_sitemap)
             self.assertIn("https://ujnotes.com/hi/root", source_sitemap)
+
+            write(stage / "public/index.html", "<html lang='en'>Home</html>")
+            write(
+                stage / "public/root.json",
+                json.dumps({"desc": "Description", "content": "Home"}),
+            )
+            write(
+                stage / "public/hi/root/index.html",
+                "<html lang='hi'>Hindi home</html>",
+            )
+            write(
+                stage / "public/hi/root/index.json",
+                json.dumps(
+                    {"desc": "विवरण", "content": "Hindi home"},
+                    ensure_ascii=False,
+                ),
+            )
+            localized_menu = (
+                "<html lang=hi><div id=main-wrapper "
+                "class='pml-open hide_path_title_updated'>Menu</div></html>"
+            )
+            write(stage / "public/hi/menu.html", localized_menu)
+
+            publish_notion.publish_artifacts(
+                SimpleNamespace(
+                    metadata=str(metadata_path),
+                    stage=str(stage),
+                    public_repo=str(public_repo),
+                    base_url="https://ujnotes.com",
+                )
+            )
+
+            self.assertEqual(
+                localized_menu,
+                (public_repo / "public/hi/menu.html").read_text(encoding="utf-8"),
+            )
+            published = json.loads(metadata_path.read_text(encoding="utf-8"))
+            self.assertIn("public/hi/menu.html", published["public_paths"])
 
     def test_root_firebase_json_uses_flat_public_artifact(self):
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -381,6 +381,15 @@ def sitemap_page_url(base_url, public_slug):
     return base if public_slug == "root" else f"{base}/{public_slug}"
 
 
+def localized_menu_slugs(variants):
+    """Return menu routes that must accompany translated home pages."""
+    return [
+        f"{variant['language']}/menu"
+        for variant in variants
+        if variant["slug"] == "root" and variant["language"] != "en"
+    ]
+
+
 def merge_translation_manifest(path, slug, languages):
     path = Path(path)
     lines = read_lines(path) if path.is_file() else []
@@ -705,6 +714,12 @@ def create_stage(args):
             ):
                 url_lines.append(normalized_line)
                 seen_rows.add(normalized_line)
+    for menu_slug in localized_menu_slugs(variants):
+        language = menu_slug.split("/", 1)[0]
+        normalized_line = f"{language}/\tmenu\t"
+        if normalized_line not in seen_rows:
+            url_lines.append(normalized_line)
+            seen_rows.add(normalized_line)
     write_lines(default_url, url_lines)
 
 
@@ -765,6 +780,36 @@ def validate_rendered_artifact(path):
         raise RuntimeError(
             f"Rendered artifact contains PHP diagnostic: {path}: {context}"
         )
+
+
+def localized_menu_html_path(root, menu_slug):
+    relative = Path(*menu_slug.split("/"))
+    candidates = [root / relative / "index.html", root / f"{relative}.html"]
+    for path in candidates:
+        if path.is_file():
+            return path
+    raise RuntimeError(f"Rendered localized menu is missing for {menu_slug!r}")
+
+
+def validate_localized_menu_artifact(path, language):
+    text = Path(path).read_text(encoding="utf-8", errors="replace")
+    validate_rendered_artifact(path)
+    html_language = re.search(
+        r"<html\b[^>]*\blang=(?:[\"']?)([^\s\"'>]+)", text, re.I
+    )
+    if not html_language or html_language.group(1).lower() != language:
+        raise RuntimeError(
+            f"Localized menu has the wrong HTML language for {language!r}: {path}"
+        )
+    main_wrapper = re.search(
+        r"<div\b[^>]*\bid=(?:[\"']?)main-wrapper(?:[\"']?)[^>]*>", text, re.I
+    )
+    if not main_wrapper or not re.search(
+        r"\bclass=(?:[\"'][^\"']*\bpml-open\b|[^\s>]*\bpml-open\b)",
+        main_wrapper.group(0),
+        re.I,
+    ):
+        raise RuntimeError(f"Localized menu is not rendered open: {path}")
 
 
 def rendered_page_paths(root, slug):
@@ -914,6 +959,22 @@ def publish_artifacts(args):
             variant_hashes[artifact_slug] = hashlib.sha256(
                 stage_json.read_bytes()
             ).hexdigest()
+
+    for menu_slug in localized_menu_slugs(variants):
+        language = menu_slug.split("/", 1)[0]
+        stage_menu = localized_menu_html_path(stage_public, menu_slug)
+        if stage_menu.stat().st_size == 0:
+            raise RuntimeError(f"Required localized menu is empty: {stage_menu}")
+        validate_localized_menu_artifact(stage_menu, language)
+        relative = Path(*menu_slug.split("/"))
+        public_menu = (
+            public_root / relative / "index.html"
+            if stage_menu.name == "index.html"
+            else public_root / f"{relative}.html"
+        )
+        public_menu.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(stage_menu, public_menu)
+        public_paths.append(public_menu.relative_to(public_repo).as_posix())
 
     for asset_path in sorted(referenced_assets):
         staged_asset = safe_target(stage_public, asset_path)

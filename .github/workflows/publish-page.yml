@@ -257,14 +257,7 @@ jobs:
             --base-url "$BASE_URL"
           python -m json.tool project/build/firebase.json >/dev/null
           python -c 'import xml.etree.ElementTree as ET; ET.parse("project/build/public/sitemap.xml")'
-          mapfile -t sitemap_slug_args < <(python -c '
-import json, sys
-metadata = json.load(open(sys.argv[1], encoding="utf-8"))
-if metadata.get("render_scope") == "all":
-    raise SystemExit
-for slug in metadata.get("queued_slugs") or [metadata["slug"]]:
-    print(slug)
-' "$METADATA_FILE")
+          mapfile -t sitemap_slug_args < <(python -c 'import json,sys; m=json.load(open(sys.argv[1], encoding="utf-8")); exit() if m.get("render_scope")=="all" else print("\n".join(m.get("queued_slugs") or [m["slug"]]))' "$METADATA_FILE")
           sitemap_args=()
           for slug in "${sitemap_slug_args[@]+"${sitemap_slug_args[@]}"}"; do
             sitemap_args+=(--slug "$slug")

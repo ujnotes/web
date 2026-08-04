@@ -457,6 +457,14 @@ def prepare_source(args):
         source_component.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(generated_component, source_component)
         generated_text = source_component.read_text(encoding="utf-8")
+        if slug == "root" and variant["language"] != "en":
+            generated_text = (
+                "<?php\n"
+                "require_once __DIR__ . '/../../Fragment/Item_text.php';\n"
+                "require_once __DIR__ . '/../../Fragment/Item_image.php';\n"
+                "?>\n"
+                + generated_text
+            )
         source_component.write_text(
             "\n".join(line.rstrip() for line in generated_text.splitlines()) + "\n",
             encoding="utf-8",

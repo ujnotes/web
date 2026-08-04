@@ -847,8 +847,11 @@ class PublicationMergeTests(unittest.TestCase):
             self.assertFalse(
                 (source / "Root/HTML/Component/root/index.php").exists()
             )
-            self.assertTrue(
-                (source / "Root/HTML/Component/hi/root/index.php").is_file()
+            hindi_root = source / "Root/HTML/Component/hi/root/index.php"
+            self.assertTrue(hindi_root.is_file())
+            self.assertIn(
+                "require_once __DIR__ . '/../../Fragment/Item_text.php';",
+                hindi_root.read_text(encoding="utf-8"),
             )
 
             stage = Path(temp_dir) / "stage"

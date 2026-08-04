@@ -369,10 +369,17 @@ def prepare_source(args):
     # navigation only exposes rows marked published.
     merged_row = merge_id_row(source_id, slug, generated_row, status="published")
     source_url = safe_target(source, Path("Config", f"Url{suffix}.tsv"))
+    if language != "en" and not read_lines(source_url):
+        default_url = safe_target(source, Path("Config", "Url.tsv"))
+        write_lines(source_url, read_lines(default_url))
     merge_url_row(source_url, slug, has_cover)
 
     source_sitemap = safe_target(source, Path("Root", "Site", "SiteMap.xml"))
-    add_sitemap_url(source_sitemap, f"{args.base_url.rstrip('/')}/{slug}")
+    language_prefix = "" if language == "en" else f"/{language}"
+    add_sitemap_url(
+        source_sitemap,
+        f"{args.base_url.rstrip('/')}{language_prefix}/{slug}",
+    )
     affected_slugs = affected_navigation_slugs(source_id, slug)
 
     metadata.update(

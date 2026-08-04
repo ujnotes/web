@@ -1,10 +1,10 @@
-name: Publish article from Notion
+name: Publish page from Source
 
 on:
   push:
     branches: [main]
     paths:
-      - .github/workflows/publish-notion.yml
+      - .github/workflows/publish-page.yml
       - ci/publish_notion.py
       - ci/validate_sitemap.py
   workflow_dispatch:

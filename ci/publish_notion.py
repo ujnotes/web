@@ -392,7 +392,7 @@ def merge_translation_manifest(path, slug, languages):
                 ]
             )
         )
-    write_lines(path, output)
+    write_lines(path, [line.rstrip("\t") for line in output])
 
 
 def prepare_source(args):

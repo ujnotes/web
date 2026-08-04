@@ -97,6 +97,28 @@ class PublicationMergeTests(unittest.TestCase):
                 "Path\tName\tExtension\nworld/example/\tindex\tjpg\n",
                 url_path.read_text(encoding="utf-8"),
             )
+    def test_translation_manifest_clears_removed_language_without_whitespace(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "Translations.tsv"
+            write(
+                path,
+                "TranslationGroup\ten\thi\n"
+                "world/other\tpublish\t\n"
+                "world/example\tpublished\tpublished\n",
+            )
+
+            publish_notion.merge_translation_manifest(
+                path, "world/example", ["en"]
+            )
+
+            self.assertEqual(
+                "TranslationGroup\ten\thi\n"
+                "world/other\tpublish\n"
+                "world/example\tpublished\n",
+                path.read_text(encoding="utf-8"),
+            )
+
+
     def test_source_merge_preserves_existing_rows(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             bundle, source, _, metadata_path = self.make_fixture(temp_dir)

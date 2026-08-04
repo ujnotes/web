@@ -17,7 +17,7 @@ METADATA_PREAMBLE_FIELDS = ("Language", "Label", "Title", "Description")
 
 def sitemap_page_url(base_url, public_slug):
     base = base_url.rstrip("/")
-    return f"{base}/" if public_slug == "root" else f"{base}/{public_slug}"
+    return base if public_slug == "root" else f"{base}/{public_slug}"
 
 
 def sitemap_urls(path):

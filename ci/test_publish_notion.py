@@ -877,7 +877,7 @@ class PublicationMergeTests(unittest.TestCase):
             source_sitemap = (source / "Root/Site/SiteMap.xml").read_text(
                 encoding="utf-8"
             )
-            self.assertIn("https://ujnotes.com/", source_sitemap)
+            self.assertIn("https://ujnotes.com", source_sitemap)
             self.assertNotIn("https://ujnotes.com/root", source_sitemap)
             self.assertIn("https://ujnotes.com/hi/root", source_sitemap)
 

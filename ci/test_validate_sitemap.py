@@ -30,7 +30,7 @@ class SitemapValidationTests(unittest.TestCase):
                 "TranslationGroup\ten\thi\nroot\tpublished\tpublished\n",
             )
             self.assertEqual(
-                {"https://ujnotes.com/", "https://ujnotes.com/hi/root"},
+                {"https://ujnotes.com", "https://ujnotes.com/hi/root"},
                 validate_sitemap.expected_translation_urls(
                     translations, "https://ujnotes.com"
                 ),

@@ -380,7 +380,7 @@ def prepare_source(args):
         source_sitemap,
         f"{args.base_url.rstrip('/')}{language_prefix}/{slug}",
     )
-    affected_slugs = affected_navigation_slugs(source_id, slug)
+    affected_slugs = (`n        [slug] if language != "en" else affected_navigation_slugs(source_id, slug)`n    )
 
     metadata.update(
         {

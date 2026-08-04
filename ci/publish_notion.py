@@ -563,6 +563,8 @@ def public_html_exists(root, slug):
 def publish_artifacts(args):
     metadata_path, metadata = read_metadata(args.metadata)
     slug = metadata["slug"]
+    language = metadata.get("language", "en")
+    public_slug = slug if language == "en" else f"{language}/{slug}"
     stage = Path(args.stage).resolve()
     public_repo = Path(args.public_repo).resolve()
     stage_public = stage / "public"
@@ -571,7 +573,12 @@ def publish_artifacts(args):
     article_json = None
 
     for affected_slug in metadata.get("affected_slugs", [slug]):
-        artifact_slug = (`n            affected_slug`n            if language == "en"`n            else f"{language}/{affected_slug}"`n        )`n        stage_html, stage_json = rendered_page_paths(stage_public, artifact_slug)
+        artifact_slug = (
+            affected_slug
+            if language == "en"
+            else f"{language}/{affected_slug}"
+        )
+        stage_html, stage_json = rendered_page_paths(stage_public, artifact_slug)
         for artifact in (stage_html, stage_json):
             if artifact.stat().st_size == 0:
                 raise RuntimeError(f"Required build artifact is empty: {artifact}")
@@ -636,7 +643,9 @@ def verify_live(args):
     _, metadata = read_metadata(args.metadata)
     slug = metadata["slug"]
     expected_hash = metadata["json_sha256"]
-    language = metadata.get("language", "en")`n    public_slug = slug if language == "en" else f"{language}/{slug}"`n    url = f"{args.base_url.rstrip('/')}/{public_slug}.json"
+    language = metadata.get("language", "en")
+    public_slug = slug if language == "en" else f"{language}/{slug}"
+    url = f"{args.base_url.rstrip('/')}/{public_slug}.json"
     deadline = time.monotonic() + args.timeout
     last_error = "no response"
 

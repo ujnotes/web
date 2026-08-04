@@ -263,6 +263,7 @@ jobs:
           python project/ci/validate_sitemap.py \
             --sitemap project/build/public/sitemap.xml \
             --base-url "$BASE_URL" \
+            --firebase project/build/firebase.json \
             --live
 
       - name: Mark Notion page published

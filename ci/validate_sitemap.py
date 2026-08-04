@@ -124,7 +124,7 @@ def fetch(url, timeout):
         return response.status, response.read(), response.headers.get_content_charset()
 
 
-def validate_live_url(url, timeout):
+def validate_live_url(url, timeout, skip_json=False):
     errors = []
     try:
         status, html, charset = fetch(url, timeout)
@@ -134,23 +134,38 @@ def validate_live_url(url, timeout):
             errors.append(f"Translation metadata leaked into live HTML: {url}")
     except (urllib.error.URLError, TimeoutError) as error:
         errors.append(f"Live request failed for {url}: {error}")
+    if skip_json:
+        return errors
+    json_url = (
+        f"{url.rstrip('/')}/root.json"
+        if not urllib.parse.urlsplit(url).path.strip("/")
+        else f"{url}.json"
+    )
     try:
-        status, body, charset = fetch(f"{url}.json", timeout)
+        status, body, charset = fetch(json_url, timeout)
         if status != 200:
-            errors.append(f"HTTP {status}: {url}.json")
+            errors.append(f"HTTP {status}: {json_url}")
         else:
             payload = json.loads(body.decode(charset or "utf-8"))
             if has_metadata_preamble(payload.get("content", "")):
-                errors.append(f"Translation metadata leaked into live JSON: {url}.json")
+                errors.append(f"Translation metadata leaked into live JSON: {json_url}")
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as error:
-        errors.append(f"Live JSON request failed for {url}.json: {error}")
+        errors.append(f"Live JSON request failed for {json_url}: {error}")
     return errors
 
 
-def validate_live(urls, timeout, workers):
+def validate_live(urls, timeout, workers, base_url, redirects=()):
     errors = []
     with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = [executor.submit(validate_live_url, url, timeout) for url in urls]
+        futures = [
+            executor.submit(
+                validate_live_url,
+                url,
+                timeout,
+                f"/{relative_slug(url, base_url)}" in redirects,
+            )
+            for url in urls
+        ]
         for future in as_completed(futures):
             errors.extend(future.result())
     return errors
@@ -175,7 +190,8 @@ def main(argv=None):
     if args.public_root:
         errors.extend(validate_local(urls, args.base_url, args.public_root, args.firebase))
     if args.live:
-        errors.extend(validate_live(urls, args.timeout, args.workers))
+        _, redirects = firebase_routes(args.firebase)
+        errors.extend(validate_live(urls, args.timeout, args.workers, args.base_url, redirects))
     if errors:
         for error in errors:
             print(f"Sitemap validation error: {error}", file=sys.stderr)

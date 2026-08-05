@@ -348,8 +348,13 @@ class PublicationMergeTests(unittest.TestCase):
             url_text = (stage / "Config/Url.tsv").read_text(encoding="utf-8")
             self.assertIn("\tscript\tjs", url_text)
             self.assertNotIn("\tstyle\tcss", url_text)
-            self.assertIn("world/\texample\tjpg", url_text)
+            # Covers are staged from Resource; Url.tsv must not queue a jpg wget.
+            self.assertNotIn("world/\texample\tjpg", url_text)
             self.assertNotIn("world/example/\tindex\tjpg", url_text)
+            self.assertEqual(
+                "cover",
+                (stage / "public/world/example/index.jpg").read_text(encoding="utf-8"),
+            )
             self.assertNotIn("about/\tindex\tjpg", url_text)
             self.assertNotIn("\tabout\tjpg", url_text)
             self.assertNotIn("world/other/\tindex\tjpg", url_text)
@@ -1225,6 +1230,47 @@ class PublicationMergeTests(unittest.TestCase):
             self.assertIn("world", metadata["affected_slugs"])
             self.assertIn("hi/world/example", metadata["render_slugs"])
 
+    def test_prepare_github_cover_callout_without_resource_is_not_has_cover(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source"
+            metadata_path = root / "article.json"
+            slug = "world/example"
+
+            write(
+                source / "Root/HTML/Component/world/example/index.php",
+                "<?php $alt='Example'; require('../HTML/Fragment/Component_cover.php') ?>\n"
+                "<div id='message'>Example</div>\n",
+            )
+            write(
+                source / "Config/ID.tsv",
+                "Status\tId\tLabel\tTitle\tJS\tDescription\tType\n"
+                "published\tworld/example\tExample\tExample\t0\tDescription\tarticle\n",
+            )
+            write(source / "Config/Url.tsv", "Path\tName\tExtension\n")
+            write(
+                source / "Config/Translations.tsv",
+                "TranslationGroup\ten\n"
+                "world/example\tpublished\n",
+            )
+            write(
+                source / "Root/Site/SiteMap.xml",
+                "<?xml version='1.0'?><urlset></urlset>",
+            )
+
+            publish_page.prepare_github(
+                SimpleNamespace(
+                    slug=slug,
+                    metadata=str(metadata_path),
+                    source=str(source),
+                    base_url="https://ujnotes.com",
+                )
+            )
+
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            self.assertFalse(metadata["has_cover"])
+            self.assertIsNone(metadata["source_cover"])
+
     def test_prepare_github_without_slug_renders_all_published(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -1283,6 +1329,11 @@ class PublicationMergeTests(unittest.TestCase):
                 source / "Root/Site/SiteMap.xml",
                 "<?xml version='1.0'?><urlset></urlset>",
             )
+            # about_site has a Url row but no Resource cover — must not be fetched.
+            write(
+                source / "Root/Resource/world/philosophy/god/index.jpg",
+                "god-cover",
+            )
 
             publish_page.prepare_github(
                 SimpleNamespace(
@@ -1328,14 +1379,23 @@ class PublicationMergeTests(unittest.TestCase):
             url_text = (stage / "Config/Url.tsv").read_text(encoding="utf-8")
             self.assertIn("\tscript\tjs", url_text)
             self.assertNotIn("\nscript\tjs\n", url_text)
-            self.assertIn("\tabout_site\tjpg", url_text)
+            # Missing Resource cover: drop Url row so Tiggu never wget's it.
+            self.assertNotIn("about_site", url_text)
             self.assertNotIn("about_site/\tindex\tjpg", url_text)
             self.assertNotIn("\nabout_site\tindex\tjpg\n", url_text)
-            self.assertIn("world/philosophy/\tgod\tjpg", url_text)
+            # Present Resource cover: materialize under public/, omit Url jpg row.
+            self.assertNotIn("world/philosophy/\tgod\tjpg", url_text)
             self.assertNotIn("world/philosophy/god/\tindex\tjpg", url_text)
+            self.assertEqual(
+                "god-cover",
+                (
+                    stage / "public/world/philosophy/god/index.jpg"
+                ).read_text(encoding="utf-8"),
+            )
+            self.assertFalse((stage / "public/about_site/index.jpg").exists())
             url_hi_text = (stage / "Config/Url_hi.tsv").read_text(encoding="utf-8")
             self.assertIn("\tstyle\tcss", url_hi_text)
-            self.assertIn("\tabout_site\tjpg", url_hi_text)
+            self.assertNotIn("about_site", url_hi_text)
             self.assertNotIn("about_site/\tindex\tjpg", url_hi_text)
 
     def test_prepare_github_requires_existing_component(self):

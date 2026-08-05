@@ -239,6 +239,23 @@ def resolve_component_cover(source, slug):
     return None
 
 
+def materialize_staged_cover(stage, slug, cover):
+    """Copy a Resource cover into public layouts Tiggu/publish expect; skip HTTP fetch."""
+    slug = str(slug).replace("\\", "/").strip("/")
+    if not slug or cover is None or not cover.is_file():
+        return False
+    staged_index = safe_target(
+        stage, Path("public", *slug.split("/"), "index.jpg")
+    )
+    staged_index.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(cover, staged_index)
+    flat = staged_url_artifact(stage, cover_url_fields(slug))
+    if flat is not None:
+        flat.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(cover, flat)
+    return True
+
+
 def download_notion_cover(source, slug, page_id, api_key):
     endpoint = f"https://api.notion.com/v1/blocks/{page_id}/children?page_size=100"
     while endpoint:
@@ -696,17 +713,10 @@ def prepare_source(args):
     cover = notion_cover if notion_cover is not None else resolve_component_cover(
         source, slug
     )
-    base_component = safe_target(
-        source,
-        next(
-            variant["source_component"]
-            for variant in variants
-            if variant["language"] == "en"
-        ),
-    )
-    base_component_text = base_component.read_text(encoding="utf-8")
     cover_is_file = cover is not None and cover.is_file()
-    has_cover = cover_is_file or "Component_cover.php" in base_component_text
+    # Only a real image (Notion download or git Resource) counts — never queue a
+    # Url.tsv jpg fetch from a cover callout alone.
+    has_cover = cover_is_file
     # Translations often omit the cover callout; inject it whenever the base
     # article has a cover so runtime can fall back to the base image URL.
     if has_cover:
@@ -871,10 +881,7 @@ def prepare_github_article(source, slug, metadata_path):
 
     cover = resolve_component_cover(source, slug)
     cover_is_file = cover is not None and cover.is_file()
-    base_component = safe_target(source, source_components[0])
-    has_cover = cover_is_file or "Component_cover.php" in base_component.read_text(
-        encoding="utf-8"
-    )
+    has_cover = cover_is_file
 
     base_id = safe_target(source, source_ids[0])
     affected_slugs = affected_navigation_slugs(base_id, slug)
@@ -1082,8 +1089,9 @@ def create_stage(args):
     metadata["render_slugs"] = render_slugs
     write_metadata(Path(args.metadata), metadata)
 
-    # Full-site GitHub renders keep every URL row, but still normalize Tiggu form:
-    # leading empty Path for root assets, and flat /{slug}.jpg cover rows.
+    # Full-site GitHub renders keep non-cover URL rows (normalized). Cover/jpg
+    # rows are never fetched via Tiggu: materialize from Resource when present,
+    # otherwise drop so missing images like about_site.jpg are not wget'd.
     if render_all:
         for url_path in sorted((stage / "Config").glob("Url*.tsv")):
             lines = read_lines(url_path)
@@ -1091,19 +1099,26 @@ def create_stage(args):
                 continue
             output = [lines[0]]
             for line in lines[1:]:
-                output.append("\t".join(normalize_url_row(parse_url_row(line))))
+                normalized = normalize_url_row(parse_url_row(line))
+                if is_article_cover_row(normalized):
+                    cover_slug = url_row_article_slug(normalized)
+                    if not cover_slug:
+                        continue
+                    cover = resolve_component_cover(stage, cover_slug)
+                    if cover is None:
+                        continue
+                    materialize_staged_cover(stage, cover_slug, cover)
+                    continue
+                output.append("\t".join(normalized))
             write_lines(url_path, output)
         return
 
     if metadata.get("source_cover"):
         source_cover = safe_target(source, metadata["source_cover"])
         for variant in variants:
-            staged_cover = safe_target(
-                stage,
-                Path("public", *variant["public_slug"].lower().split("/"), "index.jpg"),
+            materialize_staged_cover(
+                stage, variant["public_slug"].lower(), source_cover
             )
-            staged_cover.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source_cover, staged_cover)
 
     default_url = safe_target(stage, Path("Config", "Url.tsv"))
     default_lines = read_lines(default_url)
@@ -1134,16 +1149,10 @@ def create_stage(args):
             if article_slug != metadata["slug"]:
                 continue
             normalized = normalize_url_row(fields, language=variant["language"])
-            if is_article_cover_row(normalized) and not metadata.get("has_cover"):
+            # Covers are materialized under public/<slug>/index.jpg — never wget.
+            if is_article_cover_row(normalized):
                 continue
             append_url_row(normalized)
-        if metadata.get("has_cover"):
-            public_slug = (
-                metadata["slug"]
-                if variant["language"] == "en"
-                else f"{variant['language']}/{metadata['slug']}"
-            )
-            append_url_row(cover_url_fields(public_slug))
     for menu_slug in localized_menu_slugs(variants):
         language = menu_slug.split("/", 1)[0]
         append_url_row([f"{language}/", "menu", ""])

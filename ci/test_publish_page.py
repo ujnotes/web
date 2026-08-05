@@ -1084,6 +1084,172 @@ class PublicationMergeTests(unittest.TestCase):
             self.assertNotIn("Component_bottom.php", hindi_root_text)
             self.assertFalse(hindi_root_text.endswith("\n\n"))
 
+    def test_prepare_source_preserves_flat_about_me_php(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            bundle, source, _, metadata_path = self.make_fixture(temp_dir)
+            slug = "about_me"
+            write(
+                bundle / "HTML/Component/about_me/index.php",
+                "<div id='message'>Generated</div>\n"
+                "<?php require('../JS/Base/page.js'); ?>\n",
+            )
+            write(
+                bundle / "HTML/Component/hi/about_me/index.php",
+                "<div id='message'>हिन्दी</div>\n"
+                "<?php require('../JS/Base/page.js'); ?>\n"
+                "<?php require('../HTML/Fragment/Component_bottom.php') ?>\n",
+            )
+            write(
+                bundle / "Config/ID.tsv",
+                "Status\tId\tLabel\tTitle\tJS\tDescription\tType\n"
+                "publish\tabout_me\tAbout me\tAbout me\t1\tDesc\tpage\n",
+            )
+            write(
+                bundle / "Config/ID_hi.tsv",
+                "Status\tId\tLabel\tTitle\tJS\tDescription\tType\n"
+                "publish\tabout_me\tमेरे बारे में\tमेरे बारे में\t1\tविवरण\tpage\n",
+            )
+            native = "<div id='message' class='center'>Native about me</div>\n"
+            write(source / "Root/HTML/Component/About_me.php", native)
+            # Broken folder form that would shadow the flat file on Linux.
+            write(
+                source / "Root/HTML/Component/about_me/index.php",
+                "<div id='message'>Broken shadow</div>\n"
+                "<?php require('../JS/Base/page.js'); ?>\n",
+            )
+            metadata = {
+                "page_id": "page-about-me",
+                "slug": slug,
+                "title": "About me",
+                "description": "Desc",
+                "language": "en",
+                "component": "HTML/Component/about_me/index.php",
+                "queued_slugs": [slug],
+                "variants": [
+                    {
+                        "slug": slug,
+                        "title": "About me",
+                        "description": "Desc",
+                        "language": "en",
+                        "component": "HTML/Component/about_me/index.php",
+                    },
+                    {
+                        "slug": slug,
+                        "title": "मेरे बारे में",
+                        "description": "विवरण",
+                        "language": "hi",
+                        "component": "HTML/Component/hi/about_me/index.php",
+                    },
+                ],
+            }
+            write(metadata_path, json.dumps(metadata, ensure_ascii=False))
+
+            publish_page.prepare_source(
+                SimpleNamespace(
+                    bundle=str(bundle),
+                    metadata=str(metadata_path),
+                    source=str(source),
+                    base_url="https://ujnotes.com",
+                )
+            )
+
+            prepared = json.loads(metadata_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                "Root/HTML/Component/About_me.php",
+                prepared["source_component"],
+            )
+            self.assertEqual(
+                native,
+                (source / "Root/HTML/Component/About_me.php").read_text(
+                    encoding="utf-8"
+                ),
+            )
+            self.assertFalse(
+                (source / "Root/HTML/Component/about_me").exists()
+            )
+            hindi = (
+                source / "Root/HTML/Component/hi/about_me/index.php"
+            ).read_text(encoding="utf-8")
+            self.assertIn("हिन्दी", hindi)
+            self.assertNotIn("../JS/Base/page.js", hindi)
+
+            stage = Path(temp_dir) / "stage"
+            publish_page.create_stage(
+                SimpleNamespace(
+                    metadata=str(metadata_path),
+                    source=str(source),
+                    stage=str(stage),
+                )
+            )
+            self.assertTrue(
+                (stage / "Root/HTML/Component/about_me.php").is_file()
+            )
+            self.assertFalse(
+                (stage / "Root/HTML/Component/about_me").exists()
+            )
+
+    def test_root_translation_preserves_code_native_english_component_stage(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Keep prior stage/publish assertions from the root translation test.
+            bundle, source, public_repo, metadata_path = self.make_fixture(temp_dir)
+            slug = "root"
+            write(
+                bundle / "HTML/Component/root/index.php",
+                "<div id='message'>Generated root</div>",
+            )
+            write(
+                bundle / "HTML/Component/hi/root/index.php",
+                "<div id='message'>हिन्दी मुखपृष्ठ</div>\n"
+                "<?php require('../JS/Base/page.js'); ?>\n"
+                "<?php require('../HTML/Fragment/Component_bottom.php') ?>\n\n",
+            )
+            write(
+                bundle / "Config/ID.tsv",
+                "Status\tId\tLabel\tTitle\tJS\tDescription\tType\n"
+                "publish\troot\tUjnotes\tUjnotes\t1\tDescription\tpage\n",
+            )
+            write(
+                bundle / "Config/ID_hi.tsv",
+                "Status\tId\tLabel\tTitle\tJS\tDescription\tType\n"
+                "publish\troot\tउज नोट्स\tउज नोट्स\t1\tविवरण\tpage\n",
+            )
+            native_root = "<?php require_once 'Fragment/Item_text.php'; ?>\n"
+            write(source / "Root/HTML/Component/Root.php", native_root)
+            metadata = {
+                "page_id": "page-root",
+                "slug": slug,
+                "title": "Ujnotes",
+                "description": "Description",
+                "language": "en",
+                "component": "HTML/Component/root/index.php",
+                "queued_slugs": [slug],
+                "variants": [
+                    {
+                        "slug": slug,
+                        "title": "Ujnotes",
+                        "description": "Description",
+                        "language": "en",
+                        "component": "HTML/Component/root/index.php",
+                    },
+                    {
+                        "slug": slug,
+                        "title": "उज नोट्स",
+                        "description": "विवरण",
+                        "language": "hi",
+                        "component": "HTML/Component/hi/root/index.php",
+                    },
+                ],
+            }
+            write(metadata_path, json.dumps(metadata, ensure_ascii=False))
+
+            publish_page.prepare_source(
+                SimpleNamespace(
+                    bundle=str(bundle),
+                    metadata=str(metadata_path),
+                    source=str(source),
+                    base_url="https://ujnotes.com",
+                )
+            )
             stage = Path(temp_dir) / "stage"
             publish_page.create_stage(
                 SimpleNamespace(

@@ -100,15 +100,14 @@ def published_translation_languages(path, slug):
 
 
 def resolve_article_component(source, slug, language):
-    if slug == "root" and language == "en":
-        component = resolve_case_insensitive(
-            source, Path("Root", "HTML", "Component", "Root.php")
-        )
-        if component is None or not component.is_file():
+    if language == "en":
+        flat = resolve_flat_php_component(source, slug)
+        if flat is not None:
+            return flat
+        if slug == "root":
             raise RuntimeError(
                 f"GitHub source is missing the root component: {source}/Root/HTML/Component/Root.php"
             )
-        return component
     parts = ["Root", "HTML", "Component"]
     if language != "en":
         parts.append(language)
@@ -121,6 +120,22 @@ def resolve_article_component(source, slug, language):
             f"{Path(*parts).as_posix()}"
         )
     return component
+
+
+def resolve_flat_php_component(source, slug):
+    """Return an existing code-native flat Component/{slug}.php when present."""
+    leaf = slug.rsplit("/", 1)[-1]
+    parent_parts = ["Root", "HTML", "Component", *slug.split("/")[:-1]]
+    return resolve_case_insensitive(source, Path(*parent_parts, f"{leaf}.php"))
+
+
+def remove_shadowing_component_dir(source, slug):
+    """Remove slug/ when a flat slug.php exists so PHP resolve prefers the flat file."""
+    parent_parts = ["Root", "HTML", "Component", *slug.split("/")[:-1]]
+    leaf = slug.rsplit("/", 1)[-1]
+    shadow = resolve_case_insensitive(source, Path(*parent_parts, leaf))
+    if shadow is not None and shadow.is_dir():
+        shutil.rmtree(shadow)
 
 
 def article_metadata_from_id(path, slug):
@@ -653,25 +668,17 @@ def prepare_source(args):
     source_components = []
     for variant in variants:
         generated_component = safe_target(bundle, variant["component"])
-        if slug == "root" and variant["language"] == "en":
-            # The English home page is a code-native component with layout and
-            # helper imports that are not represented by the Notion body. Keep
-            # it in place while publishing nested translations for the root
-            # record; writing root/index.php shadows Root.php on case-sensitive
-            # renderers and makes the JSON endpoint emit raw HTML.
-            source_component = safe_target(
-                source, Path("Root", "HTML", "Component", "Root.php")
-            )
-            if not source_component.is_file():
-                raise RuntimeError(
-                    "Root publication requires the existing code-native "
-                    f"component: {source_component}"
-                )
-            variant["source_component"] = source_component.relative_to(
-                source
-            ).as_posix()
-            source_components.append(variant["source_component"])
-            continue
+        if variant["language"] == "en":
+            flat = resolve_flat_php_component(source, slug)
+            if flat is not None:
+                # Code-native flat English pages (Root.php, About_me.php, …) keep
+                # layout/helpers that Notion HTML does not represent. Writing
+                # slug/index.php beside them shadows the flat file on Linux and
+                # breaks JSON endpoints (HTML/PHP fatals instead of JSON).
+                remove_shadowing_component_dir(source, slug)
+                variant["source_component"] = flat.relative_to(source).as_posix()
+                source_components.append(variant["source_component"])
+                continue
         component_parts = ["Root", "HTML", "Component"]
         if variant["language"] != "en":
             component_parts.append(variant["language"])

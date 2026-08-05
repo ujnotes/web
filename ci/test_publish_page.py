@@ -1545,6 +1545,8 @@ class PublicationMergeTests(unittest.TestCase):
             url_text = (stage / "Config/Url.tsv").read_text(encoding="utf-8")
             self.assertIn("\tscript\tjs", url_text)
             self.assertNotIn("\nscript\tjs\n", url_text)
+            # Translated home pages require /{lang}/menu in Url.tsv for Tiggu.
+            self.assertIn("hi/\tmenu\t", url_text)
             # Missing Resource cover: drop Url row so Tiggu never wget's it.
             self.assertNotIn("about_site", url_text)
             self.assertNotIn("about_site/\tindex\tjpg", url_text)

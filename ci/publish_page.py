@@ -1124,6 +1124,21 @@ def create_stage(args):
                     continue
                 output.append("\t".join(normalized))
             write_lines(url_path, output)
+
+        # Tiggu only reads Config/Url.tsv. Translated home pages still need
+        # /{lang}/menu fetched into public/{lang}/menu.html (open sidebar).
+        default_url = safe_target(stage, Path("Config", "Url.tsv"))
+        url_lines = read_lines(default_url)
+        if not url_lines:
+            raise RuntimeError("Default URL manifest is empty")
+        seen_rows = set(url_lines[1:])
+        for menu_slug in localized_menu_slugs(variants):
+            language = menu_slug.split("/", 1)[0]
+            row = "\t".join([f"{language}/", "menu", ""])
+            if row not in seen_rows:
+                url_lines.append(row)
+                seen_rows.add(row)
+        write_lines(default_url, url_lines)
         return
 
     if metadata.get("source_cover"):

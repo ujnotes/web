@@ -1,12 +1,6 @@
 name: Publish page from Source
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - .github/workflows/publish-page.yml
-      - ci/publish_notion.py
-      - ci/validate_sitemap.py
   workflow_dispatch:
     inputs:
       source:
@@ -172,7 +166,7 @@ jobs:
           if [[ -n "${REQUESTED_SLUG:-}" ]]; then
             args+=(--slug "$REQUESTED_SLUG")
           fi
-          python project/ci/publish_notion.py "${args[@]}"
+          python project/ci/publish_page.py "${args[@]}"
           publish_changes=true
           if [[ "$DRY_RUN" == "true" ]]; then
             publish_changes=false
@@ -199,13 +193,13 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$CONTENT_SOURCE" == "notion" ]]; then
-            python project/ci/publish_notion.py prepare-source \
+            python project/ci/publish_page.py prepare-source \
               --bundle "$BUNDLE_DIR" \
               --metadata "$METADATA_FILE" \
               --source site/project \
               --base-url "$BASE_URL"
           fi
-          python project/ci/publish_notion.py create-stage \
+          python project/ci/publish_page.py create-stage \
             --metadata "$METADATA_FILE" \
             --source site/project \
             --stage "$STAGE_DIR"
@@ -250,7 +244,7 @@ jobs:
       - name: Validate and prepare public artifacts
         if: steps.work.outputs.has_work == 'true'
         run: |
-          python project/ci/publish_notion.py publish-artifacts \
+          python project/ci/publish_page.py publish-artifacts \
             --metadata "$METADATA_FILE" \
             --stage "$STAGE_DIR" \
             --public-repo project/build \
@@ -321,7 +315,7 @@ jobs:
       - name: Verify live deployment
         if: steps.work.outputs.has_work == 'true' && steps.work.outputs.publish_changes == 'true'
         run: |
-          python project/ci/publish_notion.py verify-live \
+          python project/ci/publish_page.py verify-live \
             --metadata "$METADATA_FILE" \
             --base-url "$BASE_URL" \
             --timeout 600

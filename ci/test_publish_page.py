@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-import publish_notion
+import publish_page
 
 
 def write(path, content):
@@ -91,7 +91,7 @@ class PublicationMergeTests(unittest.TestCase):
             url_path = Path(temp_dir) / "Url_hi.tsv"
             write(url_path, "")
 
-            publish_notion.merge_url_row(url_path, "world/example", has_cover=True)
+            publish_page.merge_url_row(url_path, "world/example", has_cover=True)
 
             self.assertEqual(
                 "Path\tName\tExtension\nworld/\texample\tjpg\n",
@@ -101,29 +101,29 @@ class PublicationMergeTests(unittest.TestCase):
     def test_normalize_url_row_preserves_leading_empty_path(self):
         self.assertEqual(
             ["", "script", "js"],
-            publish_notion.normalize_url_row(["", "script", "js"]),
+            publish_page.normalize_url_row(["", "script", "js"]),
         )
         self.assertEqual(
             ["", "script", "js"],
-            publish_notion.normalize_url_row(["script", "js"]),
+            publish_page.normalize_url_row(["script", "js"]),
         )
         self.assertEqual(
             ["", "faq", "jpg"],
-            publish_notion.normalize_url_row(["faq", "index", "jpg"]),
+            publish_page.normalize_url_row(["faq", "index", "jpg"]),
         )
         self.assertEqual(
             ["world/philosophy/", "hindu", "jpg"],
-            publish_notion.normalize_url_row(
+            publish_page.normalize_url_row(
                 ["world\\philosophy\\hindu", "index", "jpg"]
             ),
         )
         self.assertEqual(
             ["hi/", "faq", "jpg"],
-            publish_notion.normalize_url_row(["faq", "index", "jpg"], language="hi"),
+            publish_page.normalize_url_row(["faq", "index", "jpg"], language="hi"),
         )
         self.assertEqual(
             ["world/philosophy/", "life", "jpg"],
-            publish_notion.normalize_url_row(
+            publish_page.normalize_url_row(
                 ["world/philosophy/", "life", "jpg"]
             ),
         )
@@ -193,7 +193,7 @@ class PublicationMergeTests(unittest.TestCase):
             )
 
             stage = root / "stage"
-            publish_notion.create_stage(
+            publish_page.create_stage(
                 SimpleNamespace(
                     metadata=str(metadata_path),
                     source=str(source),
@@ -234,12 +234,12 @@ class PublicationMergeTests(unittest.TestCase):
             )
 
             self.assertTrue(
-                publish_notion.published_asset_exists(
+                publish_page.published_asset_exists(
                     public_repo, public_repo / "public", "world.jpg"
                 )
             )
             self.assertFalse(
-                publish_notion.published_asset_exists(
+                publish_page.published_asset_exists(
                     public_repo, public_repo / "public", "missing.js"
                 )
             )
@@ -255,7 +255,7 @@ class PublicationMergeTests(unittest.TestCase):
                 "world/example\tpublished\tpublished\n",
             )
 
-            publish_notion.merge_translation_manifest(
+            publish_page.merge_translation_manifest(
                 path, "world/example", ["en"]
             )
 
@@ -270,7 +270,7 @@ class PublicationMergeTests(unittest.TestCase):
     def test_source_merge_preserves_existing_rows(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             bundle, source, _, metadata_path = self.make_fixture(temp_dir)
-            publish_notion.prepare_source(
+            publish_page.prepare_source(
                 SimpleNamespace(
                     bundle=str(bundle),
                     metadata=str(metadata_path),
@@ -304,7 +304,7 @@ class PublicationMergeTests(unittest.TestCase):
                 "<div>Lowercase sibling tree</div>",
             )
 
-            publish_notion.prepare_source(
+            publish_page.prepare_source(
                 SimpleNamespace(
                     bundle=str(bundle),
                     metadata=str(metadata_path),
@@ -325,7 +325,7 @@ class PublicationMergeTests(unittest.TestCase):
     def test_stage_renders_only_affected_pages_and_selected_urls(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             bundle, source, _, metadata_path = self.make_fixture(temp_dir)
-            publish_notion.prepare_source(
+            publish_page.prepare_source(
                 SimpleNamespace(
                     bundle=str(bundle),
                     metadata=str(metadata_path),
@@ -337,7 +337,7 @@ class PublicationMergeTests(unittest.TestCase):
             metadata["affected_slugs"] = ["root", "world", "world/example"]
             write(metadata_path, json.dumps(metadata))
             stage = Path(temp_dir) / "stage"
-            publish_notion.create_stage(
+            publish_page.create_stage(
                 SimpleNamespace(
                     metadata=str(metadata_path),
                     source=str(source),
@@ -394,10 +394,10 @@ class PublicationMergeTests(unittest.TestCase):
             write(root_component, "<?php echo 'Root'; ?>")
             write(resource, "cover")
 
-            publish_notion.normalize_tree_lowercase(
+            publish_page.normalize_tree_lowercase(
                 stage / "Root/HTML/Component"
             )
-            publish_notion.normalize_tree_lowercase(stage / "Root/Resource")
+            publish_page.normalize_tree_lowercase(stage / "Root/Resource")
 
             self.assertTrue(
                 (stage / "Root/HTML/Component/world/index.php").is_file()
@@ -438,7 +438,7 @@ class PublicationMergeTests(unittest.TestCase):
             write(target, "different")
 
             with self.assertRaisesRegex(RuntimeError, "Conflicting lowercase"):
-                publish_notion.merge_lowercase_path(source, target)
+                publish_page.merge_lowercase_path(source, target)
 
     def test_first_notion_image_url_accepts_uploaded_file(self):
         blocks = [
@@ -454,7 +454,7 @@ class PublicationMergeTests(unittest.TestCase):
 
         self.assertEqual(
             "https://notion.example/cover.jpg",
-            publish_notion.first_notion_image_url(blocks),
+            publish_page.first_notion_image_url(blocks),
         )
 
     def test_notion_cover_target_reuses_title_cased_source_file(self):
@@ -466,7 +466,7 @@ class PublicationMergeTests(unittest.TestCase):
             )
             write(title_cased, "cover")
 
-            target = publish_notion.notion_cover_target(
+            target = publish_page.notion_cover_target(
                 source, "world/philosophy/hindu/hindu_atheist"
             )
 
@@ -478,7 +478,7 @@ class PublicationMergeTests(unittest.TestCase):
             title_cased = source / "Root/Resource/World/Philosophy/Hindu/Index.jpg"
             write(title_cased, "hindu-cover")
 
-            resolved = publish_notion.resolve_case_insensitive(
+            resolved = publish_page.resolve_case_insensitive(
                 source, "Root/Resource/world/philosophy/hindu/index.jpg"
             )
 
@@ -503,7 +503,7 @@ class PublicationMergeTests(unittest.TestCase):
                 "published\tcomputer\n",
             )
 
-            affected = publish_notion.affected_navigation_slugs(
+            affected = publish_page.affected_navigation_slugs(
                 id_path, "world/philosophy/hindu"
             )
 
@@ -522,7 +522,7 @@ class PublicationMergeTests(unittest.TestCase):
     def test_queued_link_to_existing_public_page_is_allowed(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             bundle, source, public_repo, metadata_path = self.make_fixture(temp_dir)
-            publish_notion.prepare_source(
+            publish_page.prepare_source(
                 SimpleNamespace(
                     bundle=str(bundle),
                     metadata=str(metadata_path),
@@ -550,7 +550,7 @@ class PublicationMergeTests(unittest.TestCase):
             )
             write(stage / "public/world/example/index.jpg", "cover")
 
-            publish_notion.publish_artifacts(
+            publish_page.publish_artifacts(
                 SimpleNamespace(
                     metadata=str(metadata_path),
                     stage=str(stage),
@@ -562,7 +562,7 @@ class PublicationMergeTests(unittest.TestCase):
     def test_queued_link_to_missing_public_page_is_rejected(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             bundle, source, public_repo, metadata_path = self.make_fixture(temp_dir)
-            publish_notion.prepare_source(
+            publish_page.prepare_source(
                 SimpleNamespace(
                     bundle=str(bundle),
                     metadata=str(metadata_path),
@@ -587,7 +587,7 @@ class PublicationMergeTests(unittest.TestCase):
             write(stage / "public/world/example/index.jpg", "cover")
 
             with self.assertRaisesRegex(RuntimeError, "world/philosophy/cognition"):
-                publish_notion.publish_artifacts(
+                publish_page.publish_artifacts(
                     SimpleNamespace(
                         metadata=str(metadata_path),
                         stage=str(stage),
@@ -599,7 +599,7 @@ class PublicationMergeTests(unittest.TestCase):
     def test_php_diagnostic_artifact_is_rejected(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             bundle, source, public_repo, metadata_path = self.make_fixture(temp_dir)
-            publish_notion.prepare_source(
+            publish_page.prepare_source(
                 SimpleNamespace(
                     bundle=str(bundle),
                     metadata=str(metadata_path),
@@ -618,7 +618,7 @@ class PublicationMergeTests(unittest.TestCase):
             )
 
             with self.assertRaisesRegex(RuntimeError, "PHP diagnostic"):
-                publish_notion.publish_artifacts(
+                publish_page.publish_artifacts(
                     SimpleNamespace(
                         metadata=str(metadata_path),
                         stage=str(stage),
@@ -630,7 +630,7 @@ class PublicationMergeTests(unittest.TestCase):
     def test_public_merge_preserves_firebase_configuration(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             bundle, source, public_repo, metadata_path = self.make_fixture(temp_dir)
-            publish_notion.prepare_source(
+            publish_page.prepare_source(
                 SimpleNamespace(
                     bundle=str(bundle),
                     metadata=str(metadata_path),
@@ -650,7 +650,7 @@ class PublicationMergeTests(unittest.TestCase):
             )
             write(stage / "public/world/example/index.jpg", "cover")
 
-            publish_notion.publish_artifacts(
+            publish_page.publish_artifacts(
                 SimpleNamespace(
                     metadata=str(metadata_path),
                     stage=str(stage),
@@ -691,7 +691,7 @@ class PublicationMergeTests(unittest.TestCase):
     def test_publication_copies_affected_ancestor_pages(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             bundle, source, public_repo, metadata_path = self.make_fixture(temp_dir)
-            publish_notion.prepare_source(
+            publish_page.prepare_source(
                 SimpleNamespace(
                     bundle=str(bundle),
                     metadata=str(metadata_path),
@@ -719,7 +719,7 @@ class PublicationMergeTests(unittest.TestCase):
             )
             write(stage / "public/world/example/index.jpg", "cover")
 
-            publish_notion.publish_artifacts(
+            publish_page.publish_artifacts(
                 SimpleNamespace(
                     metadata=str(metadata_path),
                     stage=str(stage),
@@ -757,7 +757,7 @@ class PublicationMergeTests(unittest.TestCase):
                 ),
             )
             with self.assertRaisesRegex(RuntimeError, "already points"):
-                publish_notion.merge_firebase(
+                publish_page.merge_firebase(
                     firebase_path, "world/example", has_cover=False
                 )
 
@@ -835,7 +835,7 @@ class PublicationMergeTests(unittest.TestCase):
                 ),
             )
 
-            publish_notion.prepare_source(
+            publish_page.prepare_source(
                 SimpleNamespace(
                     bundle=str(bundle),
                     metadata=str(metadata_path),
@@ -888,7 +888,7 @@ class PublicationMergeTests(unittest.TestCase):
             ]
             write(metadata_path, json.dumps(metadata, ensure_ascii=False))
 
-            publish_notion.prepare_source(
+            publish_page.prepare_source(
                 SimpleNamespace(
                     bundle=str(bundle),
                     metadata=str(metadata_path),
@@ -928,7 +928,7 @@ class PublicationMergeTests(unittest.TestCase):
             self.assertIn("उदाहरण", hindi_component)
 
             stage = Path(temp_dir) / "stage"
-            publish_notion.create_stage(
+            publish_page.create_stage(
                 SimpleNamespace(
                     metadata=str(metadata_path),
                     source=str(source),
@@ -961,7 +961,7 @@ class PublicationMergeTests(unittest.TestCase):
                 ),
             )
 
-            publish_notion.publish_artifacts(
+            publish_page.publish_artifacts(
                 SimpleNamespace(
                     metadata=str(metadata_path),
                     stage=str(stage),
@@ -1046,7 +1046,7 @@ class PublicationMergeTests(unittest.TestCase):
             }
             write(metadata_path, json.dumps(metadata, ensure_ascii=False))
 
-            publish_notion.prepare_source(
+            publish_page.prepare_source(
                 SimpleNamespace(
                     bundle=str(bundle),
                     metadata=str(metadata_path),
@@ -1080,7 +1080,7 @@ class PublicationMergeTests(unittest.TestCase):
             self.assertFalse(hindi_root_text.endswith("\n\n"))
 
             stage = Path(temp_dir) / "stage"
-            publish_notion.create_stage(
+            publish_page.create_stage(
                 SimpleNamespace(
                     metadata=str(metadata_path),
                     source=str(source),
@@ -1131,7 +1131,7 @@ class PublicationMergeTests(unittest.TestCase):
             )
             write(stage / "public/hi/menu.html", localized_menu)
 
-            publish_notion.publish_artifacts(
+            publish_page.publish_artifacts(
                 SimpleNamespace(
                     metadata=str(metadata_path),
                     stage=str(stage),
@@ -1196,7 +1196,7 @@ class PublicationMergeTests(unittest.TestCase):
             )
             write(source / "Root/Resource/world/example/index.jpg", "cover")
 
-            publish_notion.prepare_github(
+            publish_page.prepare_github(
                 SimpleNamespace(
                     slug=slug,
                     metadata=str(metadata_path),
@@ -1284,7 +1284,7 @@ class PublicationMergeTests(unittest.TestCase):
                 "<?xml version='1.0'?><urlset></urlset>",
             )
 
-            publish_notion.prepare_github(
+            publish_page.prepare_github(
                 SimpleNamespace(
                     slug="",
                     metadata=str(metadata_path),
@@ -1312,7 +1312,7 @@ class PublicationMergeTests(unittest.TestCase):
             )
 
             stage = root / "stage"
-            publish_notion.create_stage(
+            publish_page.create_stage(
                 SimpleNamespace(
                     metadata=str(metadata_path),
                     source=str(source),
@@ -1358,7 +1358,7 @@ class PublicationMergeTests(unittest.TestCase):
             )
 
             with self.assertRaisesRegex(RuntimeError, "missing component"):
-                publish_notion.prepare_github(
+                publish_page.prepare_github(
                     SimpleNamespace(
                         slug="missing",
                         metadata=str(root / "article.json"),
@@ -1371,7 +1371,7 @@ class PublicationMergeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             firebase = Path(temp_dir) / "firebase.json"
             write(firebase, json.dumps({"hosting": {}}))
-            publish_notion.merge_firebase(firebase, "root", False)
+            publish_page.merge_firebase(firebase, "root", False)
             hosting = json.loads(firebase.read_text(encoding="utf-8"))["hosting"]
             self.assertNotIn(
                 {"source": "/root.json", "destination": "/root/index.json"},
@@ -1395,8 +1395,8 @@ class PublicationMergeTests(unittest.TestCase):
         )
         self.assertIn('ln -s Root "$STAGE_DIR/root"', workflow)
         self.assertIn('["source_paths"]', workflow)
-        self.assertIn("paths:\n      - .github/workflows/publish-page.yml", workflow)
-        self.assertIn("      - ci/publish_notion.py", workflow)
+        self.assertNotIn("\n  push:", workflow)
+        self.assertIn("ci/publish_page.py", workflow)
         self.assertIn('github.event_name }}" != "workflow_dispatch"', workflow)
         self.assertIn("prepare-github", workflow)
         self.assertIn("CONTENT_SOURCE:", workflow)

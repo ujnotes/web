@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cross-platform helpers for the guarded Notion publication workflow."""
+"""Cross-platform helpers for the guarded page publication workflow."""
 
 import argparse
 import hashlib

@@ -1028,10 +1028,10 @@ def prepare_github(args):
     metadata_path = Path(args.metadata).resolve()
     metadata_path.parent.mkdir(parents=True, exist_ok=True)
     requested = (args.slug or "").strip()
-    if requested:
-        metadata = prepare_github_article(source, requested, metadata_path)
-    else:
+    if not requested or requested == "*":
         metadata = prepare_github_all(source, metadata_path)
+    else:
+        metadata = prepare_github_article(source, requested, metadata_path)
     write_metadata(metadata_path, metadata)
     print("GITHUB_RESULT=" + json.dumps(metadata, ensure_ascii=True))
     return metadata
@@ -1587,7 +1587,7 @@ def main(argv=None):
     github.add_argument(
         "--slug",
         default="",
-        help="Article slug to publish; omit to render all published articles",
+        help="Article slug to publish; * (or omit) to render all published articles",
     )
     github.add_argument("--metadata", required=True)
     github.add_argument("--source", required=True)

@@ -1519,6 +1519,22 @@ class PublicationMergeTests(unittest.TestCase):
                 ["faq", "hi/faq", "root", "hi/root"],
                 metadata["render_slugs"],
             )
+
+            # Explicit * is the documented "all" signal for both sources.
+            publish_page.prepare_github(
+                SimpleNamespace(
+                    slug="*",
+                    metadata=str(metadata_path),
+                    source=str(source),
+                    base_url="https://ujnotes.com",
+                )
+            )
+            star_metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            self.assertEqual("all", star_metadata["render_scope"])
+            self.assertEqual(
+                ["faq", "hi/faq", "root", "hi/root"],
+                star_metadata["render_slugs"],
+            )
             self.assertIn(
                 "Root/HTML/Component/faq/index.php",
                 metadata["source_components"],
@@ -1636,7 +1652,11 @@ class PublicationMergeTests(unittest.TestCase):
         self.assertIn("CONTENT_SOURCE:", workflow)
         self.assertIn("- github", workflow)
         self.assertNotIn("github source requires an explicit slug", workflow)
-        self.assertIn("github renders all published articles when omitted", workflow)
+        self.assertNotIn(
+            "github renders all published articles when omitted", workflow
+        )
+        self.assertIn("(* for all)", workflow)
+        self.assertIn('REQUESTED_SLUG:-}" == "*"', workflow)
 
 
 if __name__ == "__main__":

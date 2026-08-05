@@ -12,7 +12,7 @@ on:
           - notion
           - github
       slug:
-        description: Optional article slug (github renders all published articles when omitted)
+        description: Optional article slug (* for all)
         required: false
         type: string
       dry_run:
@@ -55,12 +55,19 @@ jobs:
     steps:
       - name: Validate production configuration
         shell: bash
+        env:
+          REQUESTED_SLUG: ${{ github.event_name == 'workflow_dispatch' && inputs.slug || '' }}
         run: |
           set -euo pipefail
           test -n "$PUBLISH_TOKEN" || { echo "UJNOTES_PUBLISH_TOKEN is missing" >&2; exit 1; }
           if [[ "$CONTENT_SOURCE" != "notion" && "$CONTENT_SOURCE" != "github" ]]; then
             echo "source must be notion or github (got $CONTENT_SOURCE)" >&2
             exit 1
+          fi
+          # * means render every published article from the GitHub site tree.
+          if [[ "${REQUESTED_SLUG:-}" == "*" ]]; then
+            echo "CONTENT_SOURCE=github" >> "$GITHUB_ENV"
+            CONTENT_SOURCE=github
           fi
           if [[ "$CONTENT_SOURCE" != "github" ]]; then
             test -n "$NOTION_API_KEY" || { echo "NOTION_API_KEY is missing" >&2; exit 1; }

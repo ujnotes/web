@@ -409,11 +409,15 @@ def merge_url_row(path, slug, has_cover):
         lines = ["Path\tName\tExtension"]
     output = [lines[0]]
     for line in lines[1:]:
-        first = line.split("\t", 1)[0].replace("\\", "/").rstrip("/")
-        if first != slug:
-            output.append(line)
+        fields = parse_url_row(line)
+        first = fields[0].replace("\\", "/").rstrip("/")
+        row_slug = url_row_article_slug(fields)
+        # Drop legacy folder-form and flat-form cover rows for this slug.
+        if first == slug or row_slug == slug:
+            continue
+        output.append(line)
     if has_cover:
-        output.append(f"{slug}/\tindex\tjpg")
+        output.append("\t".join(cover_url_fields(slug)))
     write_lines(path, output)
 
 
@@ -424,11 +428,31 @@ def parse_url_row(line):
     return fields[:3]
 
 
+COVER_EXTENSIONS = frozenset({"jpg", "jpeg", "png", "webp"})
+
+
+def cover_url_fields(slug):
+    """Return Url.tsv fields that Tiggu resolves to /{slug}.jpg."""
+    slug = str(slug).replace("\\", "/").strip("/")
+    if not slug:
+        raise ValueError("cover slug required")
+    if "/" in slug:
+        parent, name = slug.rsplit("/", 1)
+        return [f"{parent}/", name, "jpg"]
+    return ["", slug, "jpg"]
+
+
+def is_article_cover_row(fields):
+    _, name, extension = fields[:3] if len(fields) >= 3 else ("", "", "")
+    return bool(name and extension.lower() in COVER_EXTENSIONS)
+
+
 def normalize_url_row(fields, language="en"):
     """
     Normalize Url.tsv fields to Tiggu's form:
     - root assets use a leading empty Path ("\\tscript\\tjs")
-    - directory paths use forward slashes and a trailing slash for index.* rows
+    - article covers use flat /{slug}.jpg fields (parent/\\tleaf\\tjpg)
+    - legacy slug[/]\\tindex\\tjpg cover rows are rewritten to that flat form
     """
     path, name, extension = parse_url_row("\t".join(fields))
     # Repair legacy two-column root assets: "script\\tjs" => "\\tscript\\tjs".
@@ -447,13 +471,33 @@ def normalize_url_row(fields, language="en"):
     }:
         path, name, extension = "", path, name
 
-    path = path.replace("\\", "/")
-    if name == "index" and extension and path and not path.endswith("/"):
+    path = path.replace("\\", "/").replace("//", "/")
+    extension_l = extension.lower()
+
+    # Legacy covers: "world/philosophy/life[/]\\tindex\\tjpg" → flat /slug.jpg
+    if name == "index" and extension_l in COVER_EXTENSIONS and path:
+        slug = path.strip("/")
+        if language != "en" and slug and not slug.startswith(f"{language}/"):
+            slug = f"{language}/{slug}"
+        return cover_url_fields(slug)
+
+    if language != "en" and name and extension_l in COVER_EXTENSIONS:
+        slug = f"{path.strip('/')}/{name}" if path.strip("/") else name
+        if not slug.startswith(f"{language}/"):
+            slug = f"{language}/{slug}"
+        return cover_url_fields(slug)
+
+    if (
+        name
+        and name != "index"
+        and extension_l in COVER_EXTENSIONS
+        and path
+        and not path.endswith("/")
+    ):
         path = f"{path}/"
+
     if language != "en" and path and not path.startswith(f"{language}/"):
         path = f"{language}/{path.lstrip('/')}"
-        if name == "index" and extension and not path.endswith("/"):
-            path = f"{path}/"
     return [path, name, extension]
 
 
@@ -463,7 +507,10 @@ def is_global_script_row(fields):
 
 
 def url_row_article_slug(fields):
-    path, _, _ = normalize_url_row(fields)
+    path, name, extension = normalize_url_row(fields)
+    if name and extension.lower() in COVER_EXTENSIONS:
+        parent = path.replace("\\", "/").strip("/")
+        return f"{parent}/{name}" if parent else name
     if not path:
         return None
     return path.rstrip("/")
@@ -1036,7 +1083,7 @@ def create_stage(args):
     write_metadata(Path(args.metadata), metadata)
 
     # Full-site GitHub renders keep every URL row, but still normalize Tiggu form:
-    # trailing slashes for index.* paths, and leading empty Path for root assets.
+    # leading empty Path for root assets, and flat /{slug}.jpg cover rows.
     if render_all:
         for url_path in sorted((stage / "Config").glob("Url*.tsv")):
             lines = read_lines(url_path)
@@ -1087,22 +1134,16 @@ def create_stage(args):
             if article_slug != metadata["slug"]:
                 continue
             normalized = normalize_url_row(fields, language=variant["language"])
-            is_cover = normalized[1] == "index" and normalized[2] in {
-                "jpg",
-                "jpeg",
-                "png",
-                "webp",
-            }
-            if is_cover and not metadata.get("has_cover"):
+            if is_article_cover_row(normalized) and not metadata.get("has_cover"):
                 continue
             append_url_row(normalized)
         if metadata.get("has_cover"):
-            cover_path = (
-                f"{metadata['slug']}/"
+            public_slug = (
+                metadata["slug"]
                 if variant["language"] == "en"
-                else f"{variant['language']}/{metadata['slug']}/"
+                else f"{variant['language']}/{metadata['slug']}"
             )
-            append_url_row([cover_path, "index", "jpg"])
+            append_url_row(cover_url_fields(public_slug))
     for menu_slug in localized_menu_slugs(variants):
         language = menu_slug.split("/", 1)[0]
         append_url_row([f"{language}/", "menu", ""])

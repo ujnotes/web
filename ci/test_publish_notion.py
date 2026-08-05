@@ -94,7 +94,7 @@ class PublicationMergeTests(unittest.TestCase):
             publish_notion.merge_url_row(url_path, "world/example", has_cover=True)
 
             self.assertEqual(
-                "Path\tName\tExtension\nworld/example/\tindex\tjpg\n",
+                "Path\tName\tExtension\nworld/\texample\tjpg\n",
                 url_path.read_text(encoding="utf-8"),
             )
 
@@ -108,18 +108,24 @@ class PublicationMergeTests(unittest.TestCase):
             publish_notion.normalize_url_row(["script", "js"]),
         )
         self.assertEqual(
-            ["faq/", "index", "jpg"],
+            ["", "faq", "jpg"],
             publish_notion.normalize_url_row(["faq", "index", "jpg"]),
         )
         self.assertEqual(
-            ["world/philosophy/hindu/", "index", "jpg"],
+            ["world/philosophy/", "hindu", "jpg"],
             publish_notion.normalize_url_row(
                 ["world\\philosophy\\hindu", "index", "jpg"]
             ),
         )
         self.assertEqual(
-            ["hi/faq/", "index", "jpg"],
+            ["hi/", "faq", "jpg"],
             publish_notion.normalize_url_row(["faq", "index", "jpg"], language="hi"),
+        )
+        self.assertEqual(
+            ["world/philosophy/", "life", "jpg"],
+            publish_notion.normalize_url_row(
+                ["world/philosophy/", "life", "jpg"]
+            ),
         )
 
     def test_create_stage_repairs_legacy_url_rows_without_empty_path(self):
@@ -279,7 +285,7 @@ class PublicationMergeTests(unittest.TestCase):
             self.assertNotIn("\npublish\tworld/example", id_text)
             url_text = (source / "Config/Url.tsv").read_text(encoding="utf-8")
             self.assertIn("about/\tindex\tjpg", url_text)
-            self.assertIn("world/example/\tindex\tjpg", url_text)
+            self.assertIn("world/\texample\tjpg", url_text)
             component = source / "Root/HTML/Component/world/example/index.php"
             self.assertIn("Component_cover.php", component.read_text(encoding="utf-8"))
             sitemap = (source / "Root/Site/SiteMap.xml").read_text(encoding="utf-8")
@@ -342,9 +348,12 @@ class PublicationMergeTests(unittest.TestCase):
             url_text = (stage / "Config/Url.tsv").read_text(encoding="utf-8")
             self.assertIn("\tscript\tjs", url_text)
             self.assertNotIn("\tstyle\tcss", url_text)
+            self.assertIn("world/\texample\tjpg", url_text)
             self.assertNotIn("world/example/\tindex\tjpg", url_text)
             self.assertNotIn("about/\tindex\tjpg", url_text)
+            self.assertNotIn("\tabout\tjpg", url_text)
             self.assertNotIn("world/other/\tindex\tjpg", url_text)
+            self.assertNotIn("world/\tother\tjpg", url_text)
             id_text = (stage / "Config/ID.tsv").read_text(encoding="utf-8")
             self.assertIn("published\tworld/example", id_text)
             self.assertNotIn("\npublish\tworld/example", id_text)
@@ -1319,12 +1328,15 @@ class PublicationMergeTests(unittest.TestCase):
             url_text = (stage / "Config/Url.tsv").read_text(encoding="utf-8")
             self.assertIn("\tscript\tjs", url_text)
             self.assertNotIn("\nscript\tjs\n", url_text)
-            self.assertIn("about_site/\tindex\tjpg", url_text)
+            self.assertIn("\tabout_site\tjpg", url_text)
+            self.assertNotIn("about_site/\tindex\tjpg", url_text)
             self.assertNotIn("\nabout_site\tindex\tjpg\n", url_text)
-            self.assertIn("world/philosophy/god/\tindex\tjpg", url_text)
+            self.assertIn("world/philosophy/\tgod\tjpg", url_text)
+            self.assertNotIn("world/philosophy/god/\tindex\tjpg", url_text)
             url_hi_text = (stage / "Config/Url_hi.tsv").read_text(encoding="utf-8")
             self.assertIn("\tstyle\tcss", url_hi_text)
-            self.assertIn("about_site/\tindex\tjpg", url_hi_text)
+            self.assertIn("\tabout_site\tjpg", url_hi_text)
+            self.assertNotIn("about_site/\tindex\tjpg", url_hi_text)
 
     def test_prepare_github_requires_existing_component(self):
         with tempfile.TemporaryDirectory() as temp_dir:

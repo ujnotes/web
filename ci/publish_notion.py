@@ -239,6 +239,58 @@ def resolve_component_cover(source, slug):
     return None
 
 
+COVER_INDEX_EXTENSIONS = frozenset({"jpg", "jpeg", "png", "webp"})
+
+
+def is_cover_url_row(fields):
+    _, name, extension = fields[:3] if len(fields) >= 3 else ("", "", "")
+    return bool(name == "index" and extension.lower() in COVER_INDEX_EXTENSIONS)
+
+
+def materialize_index_cover(stage, slug, extension="jpg"):
+    """
+    Ensure Root/Resource/<slug>/index.<ext> exists for Tiggu's /slug/index.jpg URLs.
+
+    Legacy covers may live as flat Resource/<slug>.jpg while Url.tsv lists the
+    folder form. Copy the flat file into place when needed.
+    """
+    slug = str(slug).replace("\\", "/").strip("/")
+    if not slug:
+        return False
+    extension = "jpg" if extension.lower() == "jpeg" else extension.lower()
+    relative_index = Path("Root", "Resource", *slug.split("/"), f"index.{extension}")
+    existing_index = resolve_case_insensitive(stage, relative_index)
+    if existing_index is not None and existing_index.is_file():
+        return True
+
+    cover = resolve_component_cover(stage, slug)
+    if cover is None or not cover.is_file():
+        return False
+
+    target = safe_target(stage, relative_index)
+    if cover.resolve() == target.resolve():
+        return True
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(cover, target)
+    return True
+
+
+def reconcile_url_manifest_covers(stage, url_path):
+    """Normalize Url.tsv rows; materialize flat covers or drop missing ones."""
+    lines = read_lines(url_path)
+    if not lines:
+        return
+    output = [lines[0]]
+    for line in lines[1:]:
+        fields = normalize_url_row(parse_url_row(line))
+        if is_cover_url_row(fields):
+            slug = fields[0].replace("\\", "/").strip("/")
+            if not materialize_index_cover(stage, slug, extension=fields[2]):
+                continue
+        output.append("\t".join(fields))
+    write_lines(url_path, output)
+
+
 def download_notion_cover(source, slug, page_id, api_key):
     endpoint = f"https://api.notion.com/v1/blocks/{page_id}/children?page_size=100"
     while endpoint:
@@ -1036,17 +1088,15 @@ def create_stage(args):
     write_metadata(Path(args.metadata), metadata)
 
     # Full-site GitHub renders keep every URL row, but still normalize Tiggu form:
-    # trailing slashes for index.* paths, and leading empty Path for root assets.
+    # trailing slashes for index.* paths, leading empty Path for root assets,
+    # and materialize legacy flat covers into Resource/<slug>/index.jpg.
     if render_all:
         for url_path in sorted((stage / "Config").glob("Url*.tsv")):
-            lines = read_lines(url_path)
-            if not lines:
-                continue
-            output = [lines[0]]
-            for line in lines[1:]:
-                output.append("\t".join(normalize_url_row(parse_url_row(line))))
-            write_lines(url_path, output)
+            reconcile_url_manifest_covers(stage, url_path)
         return
+
+    if metadata.get("has_cover"):
+        materialize_index_cover(stage, metadata["slug"])
 
     if metadata.get("source_cover"):
         source_cover = safe_target(source, metadata["source_cover"])

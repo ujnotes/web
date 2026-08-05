@@ -1392,6 +1392,12 @@ class PublicationMergeTests(unittest.TestCase):
                     stage / "public/world/philosophy/god/index.jpg"
                 ).read_text(encoding="utf-8"),
             )
+            self.assertEqual(
+                "god-cover",
+                (
+                    stage / "public/world/philosophy/god.jpg"
+                ).read_text(encoding="utf-8"),
+            )
             self.assertFalse((stage / "public/about_site/index.jpg").exists())
             url_hi_text = (stage / "Config/Url_hi.tsv").read_text(encoding="utf-8")
             self.assertIn("\tstyle\tcss", url_hi_text)

@@ -239,7 +239,7 @@ def resolve_component_cover(source, slug):
     return None
 
 
-def materialize_staged_cover(stage, slug, cover):
+def materialize_staged_cover(stage, slug, cover, flat_fields=None):
     """Copy a Resource cover into public layouts Tiggu/publish expect; skip HTTP fetch."""
     slug = str(slug).replace("\\", "/").strip("/")
     if not slug or cover is None or not cover.is_file():
@@ -249,7 +249,8 @@ def materialize_staged_cover(stage, slug, cover):
     )
     staged_index.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(cover, staged_index)
-    flat = staged_url_artifact(stage, cover_url_fields(slug))
+    fields = flat_fields if flat_fields is not None else cover_url_fields(slug)
+    flat = staged_url_artifact(stage, fields)
     if flat is not None:
         flat.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(cover, flat)
@@ -1107,7 +1108,11 @@ def create_stage(args):
                     cover = resolve_component_cover(stage, cover_slug)
                     if cover is None:
                         continue
-                    materialize_staged_cover(stage, cover_slug, cover)
+                    # Preserve the Url row extension on the flat public path
+                    # (photo.jpg, apple-touch-icon.png, article covers, etc.).
+                    materialize_staged_cover(
+                        stage, cover_slug, cover, flat_fields=normalized
+                    )
                     continue
                 output.append("\t".join(normalized))
             write_lines(url_path, output)

@@ -45,7 +45,7 @@ class PublicationMergeTests(unittest.TestCase):
             "world/other/\tindex\tjpg\n",
         )
         write(
-            source / "Root/Site/SiteMap.xml",
+            source / "Root/Site/sitemap.xml",
             "<?xml version='1.0'?><urlset><url><loc>https://ujnotes.com/about</loc>"
             "</url></urlset>",
         )
@@ -156,7 +156,7 @@ class PublicationMergeTests(unittest.TestCase):
                 "TranslationGroup\ten\nfaq\tpublished\n",
             )
             write(
-                source / "Root/Site/SiteMap.xml",
+                source / "Root/Site/sitemap.xml",
                 "<?xml version='1.0'?><urlset></urlset>",
             )
             write(
@@ -288,7 +288,7 @@ class PublicationMergeTests(unittest.TestCase):
             self.assertIn("world/\texample\tjpg", url_text)
             component = source / "Root/HTML/Component/world/example/index.php"
             self.assertIn("Component_cover.php", component.read_text(encoding="utf-8"))
-            sitemap = (source / "Root/Site/SiteMap.xml").read_text(encoding="utf-8")
+            sitemap = (source / "Root/Site/sitemap.xml").read_text(encoding="utf-8")
             self.assertIn("https://ujnotes.com/about", sitemap)
             self.assertIn("https://ujnotes.com/world/example", sitemap)
 
@@ -800,7 +800,7 @@ class PublicationMergeTests(unittest.TestCase):
             )
             write(source / "Config/Url.tsv", "Path\tName\tExtension\n")
             write(
-                source / "Root/Site/SiteMap.xml",
+                source / "Root/Site/sitemap.xml",
                 "<?xml version='1.0'?><urlset></urlset>",
             )
             write(source / "Root/Resource/world/philosophy/life.jpg", "flat-cover")
@@ -924,7 +924,7 @@ class PublicationMergeTests(unittest.TestCase):
             )
             self.assertIn(
                 "https://ujnotes.com/hi/world/example",
-                (source / "Root/Site/SiteMap.xml").read_text(encoding="utf-8"),
+                (source / "Root/Site/sitemap.xml").read_text(encoding="utf-8"),
             )
             hindi_component = (
                 source / "Root/HTML/Component/hi/world/example/index.php"
@@ -1273,7 +1273,7 @@ class PublicationMergeTests(unittest.TestCase):
                 "hi/\tmenu\t",
                 (stage / "Config/Url.tsv").read_text(encoding="utf-8"),
             )
-            source_sitemap = (source / "Root/Site/SiteMap.xml").read_text(
+            source_sitemap = (source / "Root/Site/sitemap.xml").read_text(
                 encoding="utf-8"
             )
             self.assertIn("https://ujnotes.com", source_sitemap)
@@ -1362,7 +1362,7 @@ class PublicationMergeTests(unittest.TestCase):
                 "world/example\tpublished\tpublished\n",
             )
             write(
-                source / "Root/Site/SiteMap.xml",
+                source / "Root/Site/sitemap.xml",
                 "<?xml version='1.0'?><urlset></urlset>",
             )
             write(source / "Root/Resource/world/example/index.jpg", "cover")
@@ -1420,7 +1420,7 @@ class PublicationMergeTests(unittest.TestCase):
                 "world/example\tpublished\n",
             )
             write(
-                source / "Root/Site/SiteMap.xml",
+                source / "Root/Site/sitemap.xml",
                 "<?xml version='1.0'?><urlset></urlset>",
             )
 
@@ -1492,7 +1492,7 @@ class PublicationMergeTests(unittest.TestCase):
                 "root\tpublished\tpublished\n",
             )
             write(
-                source / "Root/Site/SiteMap.xml",
+                source / "Root/Site/sitemap.xml",
                 "<?xml version='1.0'?><urlset></urlset>",
             )
             # about_site has a Url row but no Resource cover — must not be fetched.
@@ -1585,7 +1585,7 @@ class PublicationMergeTests(unittest.TestCase):
             )
             write(source / "Config/Url.tsv", "Path\tName\tExtension\n")
             write(
-                source / "Root/Site/SiteMap.xml",
+                source / "Root/Site/sitemap.xml",
                 "<?xml version='1.0'?><urlset></urlset>",
             )
 

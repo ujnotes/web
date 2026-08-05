@@ -768,7 +768,7 @@ def prepare_source(args):
         variant["source_url"] = source_url.relative_to(source).as_posix()
         source_urls.append(variant["source_url"])
 
-    source_sitemap = safe_target(source, Path("Root", "Site", "SiteMap.xml"))
+    source_sitemap = safe_target(source, Path("Root", "Site", "sitemap.xml"))
     for variant in variants:
         add_sitemap_url(
             source_sitemap,
@@ -912,7 +912,7 @@ def prepare_github_article(source, slug, metadata_path):
         ).lower()
 
     relative_translations = Path("Config", "Translations.tsv").as_posix()
-    relative_sitemap = Path("Root", "Site", "SiteMap.xml").as_posix()
+    relative_sitemap = Path("Root", "Site", "sitemap.xml").as_posix()
     relative_cover = None
     if cover_is_file:
         relative_cover = _canonical_source_relative(source, cover)
@@ -1063,6 +1063,7 @@ def create_stage(args):
 
     normalize_tree_lowercase(stage / "Root" / "HTML" / "Component")
     normalize_tree_lowercase(stage / "Root" / "Resource")
+    normalize_tree_lowercase(stage / "Root" / "Site")
 
     normalized_components = []
     for component in metadata.get("source_components", []):

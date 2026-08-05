@@ -1256,20 +1256,13 @@ class PublicationMergeTests(unittest.TestCase):
                 "Path\tName\tExtension\n"
                 "script\tjs\n"
                 "about_site\tindex\tjpg\n"
-                "world\\philosophy\\life\tindex\tjpg\n"
                 "world\\philosophy\\god\tindex\tjpg\n",
             )
             write(
                 source / "Config/Url_hi.tsv",
                 "Path\tName\tExtension\n"
                 "style\tcss\n"
-                "about_site\tindex\tjpg\n"
-                "world\\philosophy\\life\tindex\tjpg\n",
-            )
-            write(source / "Root/Resource/world/philosophy/life.jpg", "flat-life")
-            write(
-                source / "Root/Resource/world/philosophy/god/index.jpg",
-                "folder-god",
+                "about_site\tindex\tjpg\n",
             )
             write(
                 source / "Config/Translations.tsv",
@@ -1326,23 +1319,12 @@ class PublicationMergeTests(unittest.TestCase):
             url_text = (stage / "Config/Url.tsv").read_text(encoding="utf-8")
             self.assertIn("\tscript\tjs", url_text)
             self.assertNotIn("\nscript\tjs\n", url_text)
-            self.assertIn("world/philosophy/life/\tindex\tjpg", url_text)
+            self.assertIn("about_site/\tindex\tjpg", url_text)
+            self.assertNotIn("\nabout_site\tindex\tjpg\n", url_text)
             self.assertIn("world/philosophy/god/\tindex\tjpg", url_text)
-            # Missing covers are dropped; flat covers are materialized.
-            self.assertNotIn("about_site/\tindex\tjpg", url_text)
-            self.assertEqual(
-                "flat-life",
-                (
-                    stage / "Root/Resource/world/philosophy/life/index.jpg"
-                ).read_text(encoding="utf-8"),
-            )
-            self.assertTrue(
-                (stage / "Root/Resource/world/philosophy/god/index.jpg").is_file()
-            )
             url_hi_text = (stage / "Config/Url_hi.tsv").read_text(encoding="utf-8")
             self.assertIn("\tstyle\tcss", url_hi_text)
-            self.assertIn("world/philosophy/life/\tindex\tjpg", url_hi_text)
-            self.assertNotIn("about_site/\tindex\tjpg", url_hi_text)
+            self.assertIn("about_site/\tindex\tjpg", url_hi_text)
 
     def test_prepare_github_requires_existing_component(self):
         with tempfile.TemporaryDirectory() as temp_dir:

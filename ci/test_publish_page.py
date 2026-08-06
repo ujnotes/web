@@ -1317,6 +1317,25 @@ class PublicationMergeTests(unittest.TestCase):
             )
             published = json.loads(metadata_path.read_text(encoding="utf-8"))
             self.assertIn("public/hi/menu.html", published["public_paths"])
+            hosting = json.loads(
+                (public_repo / "firebase.json").read_text(encoding="utf-8")
+            )["hosting"]
+            self.assertEqual(
+                "/hi/root/index.html",
+                next(
+                    item["destination"]
+                    for item in hosting["rewrites"]
+                    if item["source"] == "/hi"
+                ),
+            )
+            self.assertEqual(
+                "/hi/root/index.json",
+                next(
+                    item["destination"]
+                    for item in hosting["rewrites"]
+                    if item["source"] == "/hi.json"
+                ),
+            )
 
     def test_prepare_github_builds_metadata_from_source_tree(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1626,6 +1645,23 @@ class PublicationMergeTests(unittest.TestCase):
             self.assertNotIn(
                 {"source": "/root.json", "destination": "/root/index.json"},
                 hosting["rewrites"],
+            )
+
+    def test_merge_firebase_language_home_adds_translated_root_rewrites(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            firebase = Path(temp_dir) / "firebase.json"
+            write(firebase, json.dumps({"hosting": {"rewrites": []}}))
+            publish_page.merge_firebase_language_home(firebase, "hi", "hi/root")
+            hosting = json.loads(firebase.read_text(encoding="utf-8"))["hosting"]
+            self.assertEqual(
+                {
+                    ("/hi", "/hi/root/index.html"),
+                    ("/hi.json", "/hi/root/index.json"),
+                },
+                {
+                    (item["source"], item["destination"])
+                    for item in hosting["rewrites"]
+                },
             )
 
     def test_renderer_mounts_normalized_stage(self):

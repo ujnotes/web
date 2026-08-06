@@ -54,6 +54,61 @@ class SitemapValidationTests(unittest.TestCase):
                     translations, "https://ujnotes.com"
                 ),
             )
+            self.assertEqual(
+                {"https://ujnotes.com/hi"},
+                validate_sitemap.expected_language_home_urls(
+                    translations, "https://ujnotes.com"
+                ),
+            )
+
+    def test_language_home_validation_requires_firebase_rewrites(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            translations = root / "Translations.tsv"
+            firebase = root / "firebase.json"
+            public_root = root / "public"
+            page = public_root / "hi/root"
+            self.write(translations, "TranslationGroup\ten\thi\nroot\tpublished\tpublished\n")
+            self.write(page / "index.html", "<html lang='hi'>Home</html>")
+            self.write(page / "index.json", json.dumps({"content": "Home"}))
+            self.write(firebase, json.dumps({"hosting": {"rewrites": []}}))
+            errors = validate_sitemap.validate_language_homes(
+                "https://ujnotes.com",
+                public_root,
+                firebase,
+                translations,
+            )
+            self.assertTrue(
+                any("Missing Firebase rewrite for translated home page: /hi" in error for error in errors)
+            )
+            self.write(
+                firebase,
+                json.dumps(
+                    {
+                        "hosting": {
+                            "rewrites": [
+                                {
+                                    "source": "/hi",
+                                    "destination": "/hi/root/index.html",
+                                },
+                                {
+                                    "source": "/hi.json",
+                                    "destination": "/hi/root/index.json",
+                                },
+                            ]
+                        }
+                    }
+                ),
+            )
+            self.assertEqual(
+                [],
+                validate_sitemap.validate_language_homes(
+                    "https://ujnotes.com",
+                    public_root,
+                    firebase,
+                    translations,
+                ),
+            )
 
     def test_local_validation_flags_metadata_preamble(self):
         with tempfile.TemporaryDirectory() as temp_dir:

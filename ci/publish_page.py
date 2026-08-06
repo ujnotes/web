@@ -615,6 +615,50 @@ def localized_menu_slugs(variants):
     ]
 
 
+def localized_home_variants(variants):
+    """Return translated root variants served from /{language}."""
+    return [
+        variant
+        for variant in variants
+        if variant["slug"] == "root" and variant["language"] != "en"
+    ]
+
+
+def merge_firebase_language_home(path, language, public_slug):
+    """Map /{language} to the rendered translated root page on static hosting."""
+    path = Path(path)
+    with path.open(encoding="utf-8") as source:
+        data = json.load(source)
+    hosting = data.setdefault("hosting", {})
+    rewrites = hosting.setdefault("rewrites", [])
+    required = [
+        {
+            "source": f"/{language}",
+            "destination": f"/{public_slug}/index.html",
+        },
+        {
+            "source": f"/{language}.json",
+            "destination": f"/{public_slug}/index.json",
+        },
+    ]
+    for wanted in required:
+        existing = next(
+            (item for item in rewrites if item.get("source") == wanted["source"]),
+            None,
+        )
+        if existing and existing.get("destination") != wanted["destination"]:
+            raise RuntimeError(
+                f"Rewrite {wanted['source']!r} already points to "
+                f"{existing.get('destination')!r}"
+            )
+        if not existing:
+            rewrites.insert(0, wanted)
+
+    with path.open("w", encoding="utf-8", newline="\n") as target:
+        json.dump(data, target, ensure_ascii=False, indent=2)
+        target.write("\n")
+
+
 def merge_translation_manifest(path, slug, languages):
     path = Path(path)
     lines = read_lines(path) if path.is_file() else []
@@ -1524,6 +1568,11 @@ def publish_artifacts(args):
                 public_sitemap, sitemap_page_url(args.base_url, public_slug)
             )
 
+    for variant in localized_home_variants(variants):
+        merge_firebase_language_home(
+            firebase_path, variant["language"], variant["public_slug"]
+        )
+
     metadata["public_paths"] = list(dict.fromkeys(public_paths))
     metadata["variant_hashes"] = variant_hashes
     metadata["json_sha256"] = variant_hashes[slug]
@@ -1535,6 +1584,8 @@ def verify_live(args):
     expected_hashes = metadata.get("variant_hashes") or {
         article_variants(metadata)[0]["public_slug"]: metadata["json_sha256"]
     }
+    for variant in localized_home_variants(article_variants(metadata)):
+        expected_hashes[variant["language"]] = expected_hashes[variant["public_slug"]]
     deadline = time.monotonic() + args.timeout
     pending = dict(expected_hashes)
     errors = {public_slug: "no response" for public_slug in pending}

@@ -51,6 +51,60 @@ def expected_translation_urls(path, base_url, slugs=None):
     return expected
 
 
+def expected_language_home_urls(path, base_url, slugs=None):
+    expected = set()
+    wanted = {slug.strip().strip("/") for slug in (slugs or []) if slug}
+    with Path(path).open(encoding="utf-8", newline="") as source:
+        rows = csv.reader(source, delimiter="\t")
+        header = next(rows, None)
+        if not header or header[0] != "TranslationGroup":
+            raise RuntimeError(f"Invalid translation manifest header: {path}")
+        for row in rows:
+            if not row:
+                continue
+            slug = row[0].strip().strip("/")
+            if slug != "root":
+                continue
+            if wanted and slug not in wanted:
+                continue
+            for index, language in enumerate(header[1:], start=1):
+                if language == "en":
+                    continue
+                status = row[index].strip().lower() if index < len(row) else ""
+                if status == "published":
+                    expected.add(f"{base_url.rstrip('/')}/{language}")
+    return expected
+
+
+def language_home_public_slug(language):
+    return f"{language}/root"
+
+
+def validate_language_homes(base_url, public_root, firebase_path, translations_path, slugs=None):
+    errors = []
+    rewrites, _ = firebase_routes(firebase_path)
+    for url in sorted(expected_language_home_urls(translations_path, base_url, slugs)):
+        language = relative_slug(url, base_url)
+        public_slug = language_home_public_slug(language)
+        html_path, json_path = local_page_paths(public_root, public_slug)
+        for artifact in (html_path, json_path):
+            if not artifact.is_file() or artifact.stat().st_size == 0:
+                errors.append(
+                    f"Missing translated home artifact for {url}: {artifact}"
+                )
+        expected_html = f"/{public_slug}/index.html"
+        expected_json = f"/{public_slug}/index.json"
+        if rewrites.get(f"/{language}") != expected_html:
+            errors.append(
+                f"Missing Firebase rewrite for translated home page: /{language} -> {expected_html}"
+            )
+        if rewrites.get(f"/{language}.json") != expected_json:
+            errors.append(
+                f"Missing Firebase rewrite for translated home JSON: /{language}.json -> {expected_json}"
+            )
+    return errors
+
+
 def has_metadata_preamble(content):
     sample = str(content or "")[:5000].lower()
     positions = [sample.find(f"{field.lower()}:") for field in METADATA_PREAMBLE_FIELDS]
@@ -208,9 +262,26 @@ def main(argv=None):
         )
     if args.public_root:
         errors.extend(validate_local(urls, args.base_url, args.public_root, args.firebase))
+        if args.translations:
+            errors.extend(
+                validate_language_homes(
+                    args.base_url,
+                    args.public_root,
+                    args.firebase,
+                    args.translations,
+                    args.slug,
+                )
+            )
     if args.live:
         _, redirects = firebase_routes(args.firebase)
         errors.extend(validate_live(urls, args.timeout, args.workers, args.base_url, redirects))
+        if args.translations:
+            home_urls = expected_language_home_urls(
+                args.translations, args.base_url, args.slug
+            )
+            errors.extend(
+                validate_live(home_urls, args.timeout, args.workers, args.base_url, redirects)
+            )
     if errors:
         for error in errors:
             print(f"Sitemap validation error: {error}", file=sys.stderr)

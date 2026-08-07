@@ -15,16 +15,6 @@ on:
         description: Optional article slug (* for all; hi/<slug> for one language)
         required: false
         type: string
-      dry_run:
-        description: Build and validate without pushing or updating Notion
-        required: true
-        default: false
-        type: boolean
-      rerender_published:
-        description: Re-render an explicitly requested slug (even if Notion status is published)
-        required: true
-        default: false
-        type: boolean
   # schedule:
   #   - cron: "*/15 * * * *"
 
@@ -123,7 +113,7 @@ jobs:
         shell: bash
         env:
           REQUESTED_SLUG: ${{ github.event_name == 'workflow_dispatch' && inputs.slug || '' }}
-          REQUESTED_STATUS: ${{ github.event_name == 'workflow_dispatch' && inputs.rerender_published && 'published' || 'publish' }}
+          REQUESTED_STATUS: ${{ github.event_name == 'workflow_dispatch' && 'published' || 'publish' }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
         run: |
           set -euo pipefail

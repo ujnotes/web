@@ -12,7 +12,7 @@ on:
           - notion
           - github
       slug:
-        description: Optional article slug (* for all)
+        description: Optional article slug (* for all; hi/<slug> for one language)
         required: false
         type: string
       dry_run:

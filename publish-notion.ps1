@@ -13,6 +13,12 @@ Publishes automatically when exactly one Notion page is queued.
 Selects one page explicitly when multiple pages are queued.
 
 .EXAMPLE
+.\publish-notion.ps1 -Slug hi/world/philosophy/hindu
+
+Selects the canonical Notion page for a language-prefixed public slug and
+publishes that translation.
+
+.EXAMPLE
 .\publish-notion.ps1 -Slug world/philosophy/cognition -DryRun
 
 Fetches, renders, and PHP-lints the article without changing source, git, the live site, or Notion.
@@ -412,47 +418,48 @@ import ncms_fetch as ncms
 output_dir = os.path.abspath(sys.argv[1])
 requested = sys.argv[2].strip() if len(sys.argv) > 2 else ""
 
-def page_slug(page):
-    title = page.get("properties", {}).get("Id", {}).get("title", [])
-    return title[0].get("plain_text", "") if title else ""
-
 pages = ncms.fetch_database_content(ncms.database_id, status="publish")
-candidates = [{"slug": page_slug(page), "page_id": page["id"]} for page in pages]
-
-if requested:
-    selected = [page for page in pages if page_slug(page) == requested]
-    if len(selected) != 1:
-        raise RuntimeError(
-            f"Expected one publish page for {requested!r}; found {len(selected)}. "
-            f"Queued: {[item['slug'] for item in candidates]}"
-        )
-else:
-    if len(pages) != 1:
-        raise RuntimeError(
-            "Expected exactly one page with Status=publish. "
-            f"Found {len(pages)}: {[item['slug'] for item in candidates]}. "
-            "Pass -Slug to select one explicitly."
-        )
-    selected = pages
+selected, candidates, requested_language = ncms.select_publish_page(
+    pages, requested or None
+)
 
 ncms.output_dir = output_dir
 ncms.project_dir = output_dir
 ncms.git_push_enabled = False
 ncms.notion_update_enabled = False
 
-articles = ncms.extract_fields(selected, included_statuses=("publish",))
-if len(articles) != 1:
-    raise RuntimeError(f"Expected one extracted article; got {len(articles)}")
+articles = ncms.extract_fields([selected], included_statuses=("publish",))
+if not articles:
+    raise RuntimeError("Expected at least one extracted article")
+base_articles = [
+    article for article in articles if article.get("language", "en") == "en"
+]
+if len(base_articles) != 1:
+    raise RuntimeError(f"Expected one English base article; got {len(base_articles)}")
+if requested_language:
+    articles = [
+        article
+        for article in articles
+        if article.get("language", "en") == requested_language
+    ]
+    if not articles:
+        raise RuntimeError(
+            f"No {requested_language!r} translation for {base_articles[0]['slug']!r}"
+        )
 ncms.transform_to_php(articles)
 
 article = articles[0]
-print("NCMS_RESULT=" + json.dumps({
-    "slug": article["slug"],
+result = {
+    "slug": base_articles[0]["slug"],
     "title": article["title"],
     "description": article["description"],
-    "page_id": article["id"],
+    "page_id": base_articles[0]["id"],
+    "language": article.get("language", "en"),
     "queued_slugs": [item["slug"] for item in candidates],
-}, ensure_ascii=False))
+}
+if requested_language:
+    result["requested_language"] = requested_language
+print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=False))
 '@
 
     Push-Location $NcmsProject

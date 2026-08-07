@@ -266,6 +266,41 @@ class PublicationMergeTests(unittest.TestCase):
                 path.read_text(encoding="utf-8"),
             )
 
+    def test_translation_manifest_merge_keeps_other_languages(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "Translations.tsv"
+            write(
+                path,
+                "TranslationGroup\ten\thi\n"
+                "world/example\tpublished\t\n",
+            )
+
+            publish_page.merge_translation_manifest(
+                path, "world/example", ["hi"], merge=True
+            )
+
+            self.assertEqual(
+                "TranslationGroup\ten\thi\n"
+                "world/example\tpublished\tpublished\n",
+                path.read_text(encoding="utf-8"),
+            )
+
+    def test_parse_publish_target_strips_language_prefix(self):
+        self.assertEqual(
+            ("world/philosophy/hindu", "hi"),
+            publish_page.parse_publish_target(
+                "hi/world/philosophy/hindu",
+                ["world/philosophy/hindu", "world/philosophy/life"],
+            ),
+        )
+        self.assertEqual(
+            ("world/philosophy/hindu", None),
+            publish_page.parse_publish_target(
+                "world/philosophy/hindu",
+                ["world/philosophy/hindu"],
+            ),
+        )
+
 
     def test_source_merge_preserves_existing_rows(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1415,6 +1450,64 @@ class PublicationMergeTests(unittest.TestCase):
             self.assertIn("world", metadata["affected_slugs"])
             self.assertIn("hi/world/example", metadata["render_slugs"])
 
+    def test_prepare_github_language_prefixed_slug_selects_one_translation(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source"
+            metadata_path = root / "article.json"
+
+            write(
+                source / "Root/HTML/Component/world/example/index.php",
+                "<div id='message'>Example</div>\n",
+            )
+            write(
+                source / "Root/HTML/Component/hi/world/example/index.php",
+                "<div id='message'>उदाहरण</div>\n",
+            )
+            write(
+                source / "Config/ID.tsv",
+                "Status\tId\tLabel\tTitle\tJS\tDescription\tType\n"
+                "published\tworld/example\tExample\tExample\t0\tDescription\tarticle\n"
+                "published\tworld\tWorld\tWorld\t0\tParent\tarticle\n",
+            )
+            write(
+                source / "Config/ID_hi.tsv",
+                "Status\tId\tLabel\tTitle\tJS\tDescription\tType\n"
+                "published\tworld/example\tउदाहरण\tउदाहरण\t0\tविवरण\tarticle\n",
+            )
+            write(source / "Config/Url.tsv", "Path\tName\tExtension\n")
+            write(source / "Config/Url_hi.tsv", "Path\tName\tExtension\n")
+            write(
+                source / "Config/Translations.tsv",
+                "TranslationGroup\ten\thi\n"
+                "world/example\tpublished\tpublished\n",
+            )
+            write(
+                source / "Root/Site/sitemap.xml",
+                "<?xml version='1.0'?><urlset></urlset>",
+            )
+
+            publish_page.prepare_github(
+                SimpleNamespace(
+                    slug="hi/world/example",
+                    metadata=str(metadata_path),
+                    source=str(source),
+                    base_url="https://ujnotes.com",
+                )
+            )
+
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            self.assertEqual("world/example", metadata["slug"])
+            self.assertEqual("hi", metadata["language"])
+            self.assertEqual("hi", metadata["requested_language"])
+            self.assertTrue(metadata["translation_merge"])
+            self.assertEqual(
+                ["hi"],
+                [variant["language"] for variant in metadata["variants"]],
+            )
+            self.assertIn("hi/world/example", metadata["render_slugs"])
+            self.assertIn("world", metadata["affected_slugs"])
+
     def test_prepare_github_cover_callout_without_resource_is_not_has_cover(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -1691,7 +1784,7 @@ class PublicationMergeTests(unittest.TestCase):
         self.assertNotIn(
             "github renders all published articles when omitted", workflow
         )
-        self.assertIn("(* for all)", workflow)
+        self.assertIn("(* for all; hi/<slug> for one language)", workflow)
         self.assertIn('REQUESTED_SLUG:-}" == "*"', workflow)
 
 

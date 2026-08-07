@@ -16,6 +16,7 @@ from pathlib import Path
 
 
 SAFE_SLUG = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_./-]*$")
+LANGUAGE_PREFIX = re.compile(r"^[a-z]{2,3}(?:-[a-z]{2})?$")
 PHP_DIAGNOSTIC = re.compile(
     r"\b(?:PHP\s+)?(?:warning|fatal error|parse error|notice|deprecated)\s*:",
     re.IGNORECASE,
@@ -51,6 +52,22 @@ def validate_slug(slug):
     ):
         raise ValueError(f"Unsafe article slug: {slug!r}")
     return slug
+
+
+def parse_publish_target(requested_slug, candidate_slugs=()):
+    """Resolve ``hi/slug`` public paths to ``(base_slug, language_or_None)``."""
+    requested_slug = validate_slug(requested_slug)
+    candidate_slugs = set(candidate_slugs)
+    if requested_slug in candidate_slugs:
+        return requested_slug, None
+    parts = requested_slug.split("/", 1)
+    if len(parts) == 2:
+        language, remainder = parts[0].lower(), parts[1]
+        if LANGUAGE_PREFIX.fullmatch(language):
+            validate_slug(remainder)
+            if not candidate_slugs or remainder in candidate_slugs:
+                return remainder, language
+    return requested_slug, None
 
 
 def read_metadata(path):
@@ -659,7 +676,7 @@ def merge_firebase_language_home(path, language, public_slug):
         target.write("\n")
 
 
-def merge_translation_manifest(path, slug, languages):
+def merge_translation_manifest(path, slug, languages, merge=False):
     path = Path(path)
     lines = read_lines(path) if path.is_file() else []
     old_header = lines[0].split("\t") if lines else ["TranslationGroup", "en"]
@@ -678,8 +695,9 @@ def merge_translation_manifest(path, slug, languages):
                 name: fields[index] if index < len(fields) else ""
                 for index, name in enumerate(old_header)
             }
-            for language in header[1:]:
-                values[language] = ""
+            if not merge:
+                for language in header[1:]:
+                    values[language] = ""
             values.update({language: "published" for language in languages})
             values["TranslationGroup"] = slug
             output.append("\t".join(values.get(name, "") for name in header))
@@ -821,16 +839,24 @@ def prepare_source(args):
 
     translations = safe_target(source, Path("Config", "Translations.tsv"))
     merge_translation_manifest(
-        translations, slug, [variant["language"] for variant in variants]
+        translations,
+        slug,
+        [variant["language"] for variant in variants],
+        merge=bool(metadata.get("translation_merge")),
     )
-    base_id = safe_target(
-        source,
-        next(
-            variant["source_id"]
-            for variant in variants
-            if variant["language"] == "en"
-        ),
+    english_variant = next(
+        (variant for variant in variants if variant["language"] == "en"),
+        None,
     )
+    if english_variant is not None:
+        base_id = safe_target(source, english_variant["source_id"])
+    else:
+        base_id = safe_target(source, Path("Config", "ID.tsv"))
+        if slug not in published_article_slugs(base_id):
+            raise RuntimeError(
+                f"Cannot publish translation-only {slug!r}: "
+                f"English base is missing from {base_id}"
+            )
     affected_slugs = affected_navigation_slugs(base_id, slug)
     render_slugs = list(affected_slugs)
     render_slugs.extend(
@@ -886,13 +912,22 @@ def _canonical_source_relative(source, path):
 
 def prepare_github_article(source, slug, metadata_path):
     """Build publication metadata for one GitHub article slug."""
-    slug = validate_slug(slug)
     source = Path(source).resolve()
     metadata_path = Path(metadata_path).resolve()
     metadata_path.parent.mkdir(parents=True, exist_ok=True)
 
     translations = safe_target(source, Path("Config", "Translations.tsv"))
+    published_slugs = published_article_slugs(
+        safe_target(source, Path("Config", "ID.tsv"))
+    )
+    slug, requested_language = parse_publish_target(slug, published_slugs)
     languages = published_translation_languages(translations, slug)
+    if requested_language:
+        if requested_language not in languages:
+            raise RuntimeError(
+                f"No published {requested_language!r} translation for {slug!r}"
+            )
+        languages = [requested_language]
     variants = []
     source_components = []
     source_ids = []
@@ -935,7 +970,19 @@ def prepare_github_article(source, slug, metadata_path):
     cover_is_file = cover is not None and cover.is_file()
     has_cover = cover_is_file
 
-    base_id = safe_target(source, source_ids[0])
+    english_id = next(
+        (
+            relative_id
+            for relative_id, variant in zip(source_ids, variants)
+            if variant["language"] == "en"
+        ),
+        Path("Config", "ID.tsv").as_posix(),
+    )
+    base_id = safe_target(source, english_id)
+    if slug not in published_article_slugs(base_id):
+        raise RuntimeError(
+            f"Cannot publish {slug!r}: English base is missing from {base_id}"
+        )
     affected_slugs = affected_navigation_slugs(base_id, slug)
     render_slugs = list(affected_slugs)
     render_slugs.extend(
@@ -970,12 +1017,12 @@ def prepare_github_article(source, slug, metadata_path):
         )
     )
 
-    return {
+    metadata = {
         "content_source": "github",
         "slug": slug,
         "title": variants[0]["title"],
         "description": variants[0]["description"],
-        "language": "en",
+        "language": variants[0]["language"],
         "component": source_components[0],
         "queued_slugs": [slug],
         "variants": variants,
@@ -995,6 +1042,10 @@ def prepare_github_article(source, slug, metadata_path):
         "render_slugs": render_slugs,
         "source_paths": source_paths,
     }
+    if requested_language:
+        metadata["requested_language"] = requested_language
+        metadata["translation_merge"] = True
+    return metadata
 
 
 def prepare_github_all(source, metadata_path):
@@ -1127,9 +1178,12 @@ def create_stage(args):
 
     variants = article_variants(metadata)
     render_all = metadata.get("render_scope") == "all"
+    has_translation_variant = any(
+        variant["language"] != "en" for variant in variants
+    )
     render_slugs = (
         metadata.get("render_slugs")
-        if render_all or len(variants) > 1
+        if render_all or len(variants) > 1 or has_translation_variant
         else metadata.get("affected_slugs")
     )
     if not render_slugs:
@@ -1408,10 +1462,13 @@ def publish_artifacts(args):
     referenced_assets = set()
     render_all = metadata.get("render_scope") == "all"
     english_slugs = set(metadata.get("queued_slugs") or [slug])
+    has_translation_variant = any(
+        variant["language"] != "en" for variant in variants
+    )
 
     artifact_slugs = (
         metadata.get("render_slugs")
-        if render_all or len(variants) > 1
+        if render_all or len(variants) > 1 or has_translation_variant
         else metadata.get("affected_slugs")
     )
     if not artifact_slugs:
@@ -1575,7 +1632,12 @@ def publish_artifacts(args):
 
     metadata["public_paths"] = list(dict.fromkeys(public_paths))
     metadata["variant_hashes"] = variant_hashes
-    metadata["json_sha256"] = variant_hashes[slug]
+    primary_public_slug = variants[0]["public_slug"]
+    if primary_public_slug not in variant_hashes:
+        raise RuntimeError(
+            f"Rendered primary variant is missing: {primary_public_slug!r}"
+        )
+    metadata["json_sha256"] = variant_hashes[primary_public_slug]
     write_metadata(metadata_path, metadata)
 
 

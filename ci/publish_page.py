@@ -613,7 +613,7 @@ def article_variants(metadata):
         )
         seen.add(variant["language"])
         normalized.append(variant)
-    if "en" not in seen:
+    if "en" not in seen and not metadata.get("translation_merge"):
         raise RuntimeError("Nested translation bundles require an English base variant")
     return normalized
 

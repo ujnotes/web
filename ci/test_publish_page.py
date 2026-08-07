@@ -301,6 +301,129 @@ class PublicationMergeTests(unittest.TestCase):
             ),
         )
 
+    def test_translation_only_bundle_is_accepted_with_merge_flag(self):
+        with self.assertRaisesRegex(RuntimeError, "English base variant"):
+            publish_page.article_variants(
+                {
+                    "slug": "world/example",
+                    "variants": [
+                        {
+                            "slug": "world/example",
+                            "title": "उदाहरण",
+                            "description": "विवरण",
+                            "language": "hi",
+                            "component": "HTML/Component/hi/world/example/index.php",
+                        }
+                    ],
+                }
+            )
+
+        variants = publish_page.article_variants(
+            {
+                "slug": "world/example",
+                "translation_merge": True,
+                "variants": [
+                    {
+                        "slug": "world/example",
+                        "title": "उदाहरण",
+                        "description": "विवरण",
+                        "language": "hi",
+                        "component": "HTML/Component/hi/world/example/index.php",
+                    }
+                ],
+            }
+        )
+        self.assertEqual(["hi"], [variant["language"] for variant in variants])
+        self.assertEqual("hi/world/example", variants[0]["public_slug"])
+
+    def test_prepare_source_accepts_translation_only_bundle(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            bundle = root / "bundle"
+            source = root / "source"
+            metadata_path = root / "article.json"
+            slug = "world/example"
+
+            write(
+                bundle / "HTML/Component/hi/world/example/index.php",
+                "<div id='message'>उदाहरण</div>\n",
+            )
+            write(
+                bundle / "Config/ID_hi.tsv",
+                "Status\tId\tLabel\tTitle\tJS\tDescription\tType\n"
+                "publish\tworld/example\tउदाहरण\tउदाहरण\t0\tविवरण\tarticle\n",
+            )
+            write(
+                source / "Config/ID.tsv",
+                "Status\tId\tLabel\tTitle\tJS\tDescription\tType\n"
+                "published\tworld/example\tExample\tExample\t0\tDescription\tarticle\n"
+                "published\tworld\tWorld\tWorld\t0\tParent\tarticle\n",
+            )
+            write(source / "Config/Url.tsv", "Path\tName\tExtension\n")
+            write(
+                source / "Config/Translations.tsv",
+                "TranslationGroup\ten\thi\n"
+                "world/example\tpublished\t\n",
+            )
+            write(
+                source / "Root/Site/sitemap.xml",
+                "<?xml version='1.0'?><urlset></urlset>",
+            )
+            write(
+                metadata_path,
+                json.dumps(
+                    {
+                        "page_id": "page-1",
+                        "slug": slug,
+                        "title": "उदाहरण",
+                        "description": "विवरण",
+                        "language": "hi",
+                        "component": "HTML/Component/hi/world/example/index.php",
+                        "requested_language": "hi",
+                        "translation_merge": True,
+                        "queued_slugs": [slug],
+                        "variants": [
+                            {
+                                "slug": slug,
+                                "title": "उदाहरण",
+                                "description": "विवरण",
+                                "language": "hi",
+                                "component": "HTML/Component/hi/world/example/index.php",
+                            }
+                        ],
+                    }
+                ),
+            )
+
+            publish_page.prepare_source(
+                SimpleNamespace(
+                    bundle=str(bundle),
+                    metadata=str(metadata_path),
+                    source=str(source),
+                    base_url="https://ujnotes.com",
+                )
+            )
+
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                ["hi"],
+                [variant["language"] for variant in metadata["variants"]],
+            )
+            self.assertIn("hi/world/example", metadata["render_slugs"])
+            self.assertEqual(
+                "TranslationGroup\ten\thi\n"
+                "world/example\tpublished\tpublished\n",
+                (source / "Config/Translations.tsv").read_text(encoding="utf-8"),
+            )
+            self.assertTrue(
+                (
+                    source / "Root/HTML/Component/hi/world/example/index.php"
+                ).is_file()
+            )
+            self.assertFalse(
+                (source / "Root/HTML/Component/world/example/index.php").exists()
+            )
+
 
     def test_source_merge_preserves_existing_rows(self):
         with tempfile.TemporaryDirectory() as temp_dir:

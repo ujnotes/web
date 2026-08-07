@@ -1012,11 +1012,109 @@ class PublicationMergeTests(unittest.TestCase):
             ).read_text(encoding="utf-8")
             self.assertIn("Component_cover.php", hindi)
             self.assertIn("जीवन", hindi)
+            self.assertIn("echo $desc", hindi)
+            self.assertIn("<h2 class='center'>", hindi)
             prepared = json.loads(metadata_path.read_text(encoding="utf-8"))
             self.assertTrue(prepared["has_cover"])
             self.assertEqual(
                 "Root/Resource/world/philosophy/life.jpg",
                 prepared["source_cover"],
+            )
+
+    def test_prepare_source_repairs_cover_without_desc_heading(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            bundle = root / "bundle"
+            source = root / "source"
+            metadata_path = root / "article.json"
+            slug = "world/philosophy/hindu"
+
+            write(
+                bundle / "HTML/Component/world/philosophy/hindu/index.php",
+                "<?php $alt='Hindu'; require('../HTML/Fragment/Component_cover.php') ?>\n"
+                "<h2 class='center'><?php echo $desc; ?></h2>\n"
+                "\n<div id='message'>Hindu</div>\n",
+            )
+            write(
+                bundle / "HTML/Component/hi/world/philosophy/hindu/index.php",
+                "<?php $alt='हिंदू'; require('../HTML/Fragment/Component_cover.php') ?>"
+                "\n\n<div id='message'>हिंदू</div>\n",
+            )
+            write(
+                bundle / "Config/ID.tsv",
+                "Status\tId\tLabel\tTitle\tJS\tDescription\tType\n"
+                "publish\tworld/philosophy/hindu\tHindu\tHindu\t0\tDesc\tarticle\n",
+            )
+            write(
+                bundle / "Config/ID_hi.tsv",
+                "Status\tId\tLabel\tTitle\tJS\tDescription\tType\n"
+                "publish\tworld/philosophy/hindu\tहिंदू\tहिंदू\t0\tवर्णन\tarticle\n",
+            )
+            write(
+                source / "Config/ID.tsv",
+                "Status\tId\tLabel\tTitle\tJS\tDescription\tType\n"
+                "published\troot\tHome\tHome\t0\tHome\tpage\n",
+            )
+            write(source / "Config/Url.tsv", "Path\tName\tExtension\n")
+            write(
+                source / "Root/Site/sitemap.xml",
+                "<?xml version='1.0'?><urlset></urlset>",
+            )
+            write(source / "Root/Resource/world/philosophy/hindu.jpg", "flat-cover")
+            write(
+                metadata_path,
+                json.dumps(
+                    {
+                        "page_id": "page-hindu",
+                        "slug": slug,
+                        "title": "Hindu",
+                        "description": "Desc",
+                        "language": "en",
+                        "component": "HTML/Component/world/philosophy/hindu/index.php",
+                        "queued_slugs": [slug],
+                        "variants": [
+                            {
+                                "slug": slug,
+                                "title": "Hindu",
+                                "description": "Desc",
+                                "language": "en",
+                                "component": (
+                                    "HTML/Component/world/philosophy/hindu/index.php"
+                                ),
+                            },
+                            {
+                                "slug": slug,
+                                "title": "हिंदू",
+                                "description": "वर्णन",
+                                "language": "hi",
+                                "component": (
+                                    "HTML/Component/hi/world/philosophy/hindu/index.php"
+                                ),
+                            },
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+
+            publish_page.prepare_source(
+                SimpleNamespace(
+                    bundle=str(bundle),
+                    metadata=str(metadata_path),
+                    source=str(source),
+                    base_url="https://ujnotes.com",
+                )
+            )
+
+            hindi = (
+                source / "Root/HTML/Component/hi/world/philosophy/hindu/index.php"
+            ).read_text(encoding="utf-8")
+            self.assertIn("Component_cover.php", hindi)
+            self.assertIn("echo $desc", hindi)
+            self.assertIn("<h2 class='center'>", hindi)
+            self.assertLess(
+                hindi.index("Component_cover.php"),
+                hindi.index("echo $desc"),
             )
 
     def test_nested_translation_bundle_is_published_atomically(self):
@@ -1089,6 +1187,7 @@ class PublicationMergeTests(unittest.TestCase):
             ).read_text(encoding="utf-8")
             self.assertIn("Component_cover.php", hindi_component)
             self.assertIn("उदाहरण", hindi_component)
+            self.assertIn("echo $desc", hindi_component)
 
             stage = Path(temp_dir) / "stage"
             publish_page.create_stage(

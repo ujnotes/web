@@ -789,22 +789,48 @@ def prepare_source(args):
     has_cover = cover_is_file
     # Translations often omit the cover callout; inject it whenever the base
     # article has a cover so runtime can fall back to the base image URL.
+    # Always pair the cover with the description heading — same markup NCMS
+    # emits for an author cover callout.
+    desc_heading = "<h2 class='center'><?php echo $desc; ?></h2>"
     if has_cover:
         for variant in variants:
             source_component = safe_target(source, variant["source_component"])
             component_text = source_component.read_text(encoding="utf-8")
-            if "Component_cover.php" not in component_text:
+            has_cover_require = "Component_cover.php" in component_text
+            has_desc_heading = "echo $desc" in component_text
+            if not has_cover_require:
                 alt = variant.get("title", metadata.get("title", ""))
                 alt = alt.replace("\\", "\\\\").replace("'", "\\'")
                 markup = (
                     f"<?php $alt='{alt}'; "
-                    "require('../HTML/Fragment/Component_cover.php') ?>"
+                    "require('../HTML/Fragment/Component_cover.php') ?>\n"
+                    f"{desc_heading}"
                 )
                 source_component.write_text(
                     markup + "\n\n" + component_text,
                     encoding="utf-8",
                     newline="\n",
                 )
+            elif not has_desc_heading:
+                # Older publishes injected the cover alone; restore the heading.
+                updated = re.sub(
+                    r"(require\s*\(\s*'../HTML/Fragment/Component_cover\.php'\s*\)\s*\?>)",
+                    rf"\1\n{desc_heading}",
+                    component_text,
+                    count=1,
+                )
+                if updated == component_text:
+                    updated = component_text.replace(
+                        "\n<div id='message'>",
+                        f"\n{desc_heading}\n<div id='message'>",
+                        1,
+                    )
+                if updated != component_text:
+                    source_component.write_text(
+                        updated,
+                        encoding="utf-8",
+                        newline="\n",
+                    )
 
     source_ids = []
     source_urls = []

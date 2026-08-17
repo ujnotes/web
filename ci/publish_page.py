@@ -471,6 +471,22 @@ def merge_url_row(path, slug, has_cover):
     write_lines(path, output)
 
 
+def assert_cover_url_row(path, slug, has_cover):
+    """Require a real article cover to be listed in its Url.tsv manifest."""
+    if not has_cover:
+        return
+    rows = {
+        url_row_article_slug(parse_url_row(line))
+        for line in read_lines(path)[1:]
+    }
+    if slug not in rows:
+        expected = "\t".join(cover_url_fields(slug))
+        raise RuntimeError(
+            f"URL manifest {path} is missing the cover row for {slug!r}: "
+            f"{expected!r}"
+        )
+
+
 def parse_url_row(line):
     """Split a Url.tsv row, preserving a leading empty Path field."""
     fields = line.split("\t")
@@ -855,6 +871,7 @@ def prepare_source(args):
         merge_url_row(source_url, slug, has_cover)
         variant["source_url"] = source_url.relative_to(source).as_posix()
         source_urls.append(variant["source_url"])
+        assert_cover_url_row(source_url, slug, has_cover)
 
     source_sitemap = safe_target(source, Path("Root", "Site", "sitemap.xml"))
     for variant in variants:
@@ -995,6 +1012,8 @@ def prepare_github_article(source, slug, metadata_path):
     cover = resolve_component_cover(source, slug)
     cover_is_file = cover is not None and cover.is_file()
     has_cover = cover_is_file
+    for source_url in dict.fromkeys(source_urls):
+        assert_cover_url_row(safe_target(source, source_url), slug, has_cover)
 
     english_id = next(
         (

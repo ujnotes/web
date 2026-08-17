@@ -98,6 +98,25 @@ class PublicationMergeTests(unittest.TestCase):
                 url_path.read_text(encoding="utf-8"),
             )
 
+    def test_cover_url_guard_rejects_missing_manifest_row(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            url_path = Path(temp_dir) / "Url.tsv"
+            write(url_path, "Path\tName\tExtension\n\tscript\tjs\n")
+
+            with self.assertRaisesRegex(
+                RuntimeError, "missing the cover row for 'world/example'"
+            ):
+                publish_page.assert_cover_url_row(
+                    url_path, "world/example", has_cover=True
+                )
+
+            publish_page.merge_url_row(
+                url_path, "world/example", has_cover=True
+            )
+            publish_page.assert_cover_url_row(
+                url_path, "world/example", has_cover=True
+            )
+
     def test_normalize_url_row_preserves_leading_empty_path(self):
         self.assertEqual(
             ["", "script", "js"],

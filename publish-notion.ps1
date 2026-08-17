@@ -314,7 +314,7 @@ with open(path, "w", encoding="utf-8", newline="\n") as target:
 '@
 
     Invoke-Native -FilePath $Python `
-        -ArgumentList @('-c', $code, $Path, $ArticleSlug, $(if ($HasCover) { '1' } else { '0' })) `
+        -ArgumentList @('-X', 'utf8', '-c', $code, $Path, $ArticleSlug, $(if ($HasCover) { '1' } else { '0' })) `
         -WorkingDirectory $PythonWorkingDirectory
 }
 
@@ -437,24 +437,40 @@ base_articles = [
 if len(base_articles) != 1:
     raise RuntimeError(f"Expected one English base article; got {len(base_articles)}")
 if requested_language:
-    articles = [
-        article
-        for article in articles
-        if article.get("language", "en") == requested_language
+    requested_articles = [
+        item
+        for item in articles
+        if item.get("language", "en") == requested_language
     ]
-    if not articles:
+    if not requested_articles:
         raise RuntimeError(
             f"No {requested_language!r} translation for {base_articles[0]['slug']!r}"
         )
 ncms.transform_to_php(articles)
 
-article = articles[0]
+article = requested_articles[0] if requested_language else base_articles[0]
+variants = []
+for item in articles:
+    language = item.get("language", "en")
+    component_parts = ["HTML", "Component"]
+    if language != "en":
+        component_parts.append(language)
+    component_parts.extend(item["slug"].split("/"))
+    component_parts.append("index.php")
+    variants.append({
+        "slug": item["slug"],
+        "title": item["title"],
+        "description": item["description"],
+        "language": language,
+        "component": "/".join(component_parts),
+    })
 result = {
     "slug": base_articles[0]["slug"],
     "title": article["title"],
     "description": article["description"],
     "page_id": base_articles[0]["id"],
     "language": article.get("language", "en"),
+    "variants": variants,
     "queued_slugs": [item["slug"] for item in candidates],
 }
 if requested_language:
@@ -464,7 +480,7 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=False))
 
     Push-Location $NcmsProject
     try {
-        $renderOutput = @(& $python -c $renderCode $renderRoot $(if ($Slug) { $Slug } else { '' }) 2>&1)
+        $renderOutput = @(& $python -X utf8 -c $renderCode $renderRoot $(if ($Slug) { $Slug } else { '' }) 2>&1)
         $renderExitCode = $LASTEXITCODE
     }
     finally {
@@ -486,14 +502,16 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=False))
     $targetSlug = [string]$article.slug
     Assert-SafeSlug $targetSlug
     $slugPath = $targetSlug.Replace('/', '\')
-    $componentRelative = "HTML\Component\$slugPath\index.php"
-    $renderComponent = Join-Path $renderRoot $componentRelative
-    if (-not (Test-Path -LiteralPath $renderComponent)) {
-        throw "Rendered PHP component not found: $renderComponent"
-    }
-
-    if (Test-Path -LiteralPath $php) {
-        Invoke-Native -FilePath $php -ArgumentList @('-l', $renderComponent) -WorkingDirectory $projectRoot
+    $variants = @($article.variants)
+    foreach ($variant in $variants) {
+        $variantComponentRelative = ([string]$variant.component).Replace('/', '\')
+        $renderVariantComponent = Join-Path $renderRoot $variantComponentRelative
+        if (-not (Test-Path -LiteralPath $renderVariantComponent)) {
+            throw "Rendered PHP component not found: $renderVariantComponent"
+        }
+        if (Test-Path -LiteralPath $php) {
+            Invoke-Native -FilePath $php -ArgumentList @('-l', $renderVariantComponent) -WorkingDirectory $projectRoot
+        }
     }
 
     Write-Host "Selected: $targetSlug ($($article.title))" -ForegroundColor Green
@@ -509,16 +527,27 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=False))
     }
 
     Write-Step 'Updating the local generated source'
-    $realComponent = Join-Path $siteProject ("root\" + $componentRelative)
-    New-Item -ItemType Directory -Path (Split-Path -Parent $realComponent) -Force | Out-Null
-    Copy-Item -LiteralPath $renderComponent -Destination $realComponent -Force
-
     $coverSource = Join-Path $siteProject ("root\Resource\" + $slugPath + "\index.jpg")
-    $componentText = [System.IO.File]::ReadAllText($realComponent)
-    if ((Test-Path -LiteralPath $coverSource) -and -not $componentText.Contains('Component_cover.php')) {
-        $coverAlt = ([string]$article.title).Replace('\', '\\').Replace("'", "\'")
-        $coverMarkup = "<?php `$alt='$coverAlt'; require('../HTML/Fragment/Component_cover.php') ?>"
-        Write-Utf8Text -Path $realComponent -Text ($coverMarkup + "`n`n" + $componentText)
+    $realComponent = $null
+    foreach ($variant in $variants) {
+        $variantComponentRelative = ([string]$variant.component).Replace('/', '\')
+        $renderVariantComponent = Join-Path $renderRoot $variantComponentRelative
+        $realVariantComponent = Join-Path $siteProject ("root\" + $variantComponentRelative)
+        New-Item -ItemType Directory -Path (Split-Path -Parent $realVariantComponent) -Force | Out-Null
+        Copy-Item -LiteralPath $renderVariantComponent -Destination $realVariantComponent -Force
+
+        $componentText = [System.IO.File]::ReadAllText($realVariantComponent)
+        if ((Test-Path -LiteralPath $coverSource) -and -not $componentText.Contains('Component_cover.php')) {
+            $coverAlt = ([string]$variant.title).Replace('\', '\\').Replace("'", "\'")
+            $coverMarkup = "<?php `$alt='$coverAlt'; require('../HTML/Fragment/Component_cover.php') ?>"
+            Write-Utf8Text -Path $realVariantComponent -Text ($coverMarkup + "`n`n" + $componentText)
+        }
+        if ([string]$variant.language -eq 'en') {
+            $realComponent = $realVariantComponent
+        }
+    }
+    if (-not $realComponent) {
+        throw "The render did not include the canonical English component for '$targetSlug'."
     }
 
     $renderIdPath = Join-Path $renderRoot 'Config\ID.tsv'
@@ -531,6 +560,15 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=False))
     if (-not $articleRow) {
         throw "No ID row was generated for '$targetSlug'."
     }
+    $alreadyPublishedSlugs = @(
+        [System.IO.File]::ReadAllLines($realIdPath) |
+            ForEach-Object {
+                $fields = @($_ -split "`t")
+                if ($fields.Count -ge 2 -and $fields[0] -eq 'published') {
+                    $fields[1]
+                }
+            }
+    )
     Merge-IdRow -Path $realIdPath -ArticleSlug $targetSlug -ArticleRow $articleRow
 
     $hasCover = [System.IO.File]::ReadAllText($realComponent).Contains('Component_cover.php')
@@ -540,8 +578,6 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=False))
     Write-Step 'Creating the isolated Cutie build'
     $exclude = @(
         (Join-Path $siteProject '.git'),
-        (Join-Path $siteProject 'public'),
-        (Join-Path $siteProject 'interim'),
         (Join-Path $siteProject 'HTML'),
         (Join-Path $siteProject 'Site')
     )
@@ -619,32 +655,75 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=False))
         $realIdTemporarilyFiltered = $false
     }
 
-    $stagePublicTarget = Join-Path $stageProject "public\$slugPath"
-    $stageHtml = Join-Path $stagePublicTarget 'index.html'
-    $stageJson = Join-Path $stagePublicTarget 'index.json'
-    foreach ($artifact in @($stageHtml, $stageJson)) {
-        if (-not (Test-Path -LiteralPath $artifact) -or (Get-Item -LiteralPath $artifact).Length -eq 0) {
-            throw "Required build artifact is missing or empty: $artifact"
+    $builtVariants = @()
+    foreach ($variant in $variants) {
+        $variantPublicSlug = if ([string]$variant.language -eq 'en') {
+            $targetSlug
         }
-    }
-    $builtJson = [System.IO.File]::ReadAllText($stageJson) | ConvertFrom-Json
-    if ([string]$builtJson.desc -ne [string]$article.description) {
-        throw 'Built JSON description does not match Notion.'
-    }
-    foreach ($queuedSlug in @($article.queued_slugs)) {
-        if ($queuedSlug -and $queuedSlug -ne $targetSlug -and [string]$builtJson.content -like "*$queuedSlug*") {
-            throw "Built article links to queued unpublished page '$queuedSlug'."
+        else {
+            "$([string]$variant.language)/$targetSlug"
+        }
+        $variantPublicPath = $variantPublicSlug.Replace('/', '\')
+        $stageVariantTarget = Join-Path $stageProject "public\$variantPublicPath"
+        $stageVariantHtml = Join-Path $stageVariantTarget 'index.html'
+        $stageVariantJson = Join-Path $stageVariantTarget 'index.json'
+        foreach ($artifact in @($stageVariantHtml, $stageVariantJson)) {
+            if (-not (Test-Path -LiteralPath $artifact) -or (Get-Item -LiteralPath $artifact).Length -eq 0) {
+                throw "Required build artifact is missing or empty: $artifact"
+            }
+        }
+        $builtJson = [System.IO.File]::ReadAllText($stageVariantJson) | ConvertFrom-Json
+        if ([string]$builtJson.desc -ne [string]$variant.description) {
+            throw "Built JSON description does not match Notion for '$variantPublicSlug'."
+        }
+        foreach ($queuedSlug in @($article.queued_slugs)) {
+            if (
+                $queuedSlug -and
+                $queuedSlug -ne $targetSlug -and
+                $alreadyPublishedSlugs -notcontains $queuedSlug -and
+                [string]$builtJson.content -like "*$queuedSlug*"
+            ) {
+                throw "Built article links to queued unpublished page '$queuedSlug'."
+            }
+        }
+        $builtVariants += [pscustomobject]@{
+            PublicSlug = $variantPublicSlug
+            Html = $stageVariantHtml
+            Json = $stageVariantJson
+            Language = [string]$variant.language
         }
     }
 
     Write-Step 'Updating the public repository'
-    $publicTarget = Join-Path $publicRepo "public\$slugPath"
-    New-Item -ItemType Directory -Path $publicTarget -Force | Out-Null
-    Copy-Item -LiteralPath $stageHtml, $stageJson -Destination $publicTarget -Force
+    foreach ($builtVariant in $builtVariants) {
+        $publicTarget = Join-Path $publicRepo ("public\" + $builtVariant.PublicSlug.Replace('/', '\'))
+        New-Item -ItemType Directory -Path $publicTarget -Force | Out-Null
+        Copy-Item -LiteralPath $builtVariant.Html, $builtVariant.Json -Destination $publicTarget -Force
+    }
 
+    $publicTarget = Join-Path $publicRepo "public\$slugPath"
+    $stagePublicTarget = Join-Path $stageProject "public\$slugPath"
     $stageJpg = Join-Path $stagePublicTarget 'index.jpg'
     if ($hasCover -and (Test-Path -LiteralPath $stageJpg) -and (Get-Item -LiteralPath $stageJpg).Length -gt 0) {
         Copy-Item -LiteralPath $stageJpg -Destination $publicTarget -Force
+    }
+
+    $legacyParent = Split-Path -Parent $publicTarget
+    $legacyStem = Split-Path -Leaf $publicTarget
+    $legacyGitPaths = @()
+    foreach ($extension in @('html', 'json', 'jpg')) {
+        $legacyPath = Join-Path $legacyParent "$legacyStem.$extension"
+        if (Test-Path -LiteralPath $legacyPath) {
+            Remove-Item -LiteralPath $legacyPath -Force
+            $lastSlash = $targetSlug.LastIndexOf('/')
+            $legacyPrefix = if ($lastSlash -ge 0) {
+                $targetSlug.Substring(0, $lastSlash) + '/'
+            }
+            else {
+                ''
+            }
+            $legacyGitPaths += "public/$legacyPrefix$legacyStem.$extension"
+        }
     }
 
     $firebasePath = Join-Path $publicRepo 'firebase.json'
@@ -663,13 +742,16 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=False))
 
     $gitPaths = @(
         'firebase.json',
-        'public/sitemap.xml',
-        "public/$targetSlug/index.html",
-        "public/$targetSlug/index.json"
+        'public/sitemap.xml'
     )
+    foreach ($builtVariant in $builtVariants) {
+        $gitPaths += "public/$($builtVariant.PublicSlug)/index.html"
+        $gitPaths += "public/$($builtVariant.PublicSlug)/index.json"
+    }
     if ($hasCover -and (Test-Path -LiteralPath (Join-Path $publicTarget 'index.jpg'))) {
         $gitPaths += "public/$targetSlug/index.jpg"
     }
+    $gitPaths += $legacyGitPaths
     Invoke-Native -FilePath 'git' -ArgumentList (@('add', '--') + $gitPaths) -WorkingDirectory $publicRepo
     Invoke-Native -FilePath 'git' -ArgumentList @('diff', '--cached', '--check') -WorkingDirectory $publicRepo
 
@@ -689,26 +771,28 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=False))
     Invoke-Native -FilePath 'git' -ArgumentList @('push', 'origin', 'main') -WorkingDirectory $publicRepo
 
     Write-Step 'Waiting for the deployed JSON to match'
-    $localHash = (Get-FileHash -LiteralPath $stageJson -Algorithm SHA256).Hash
-    $liveJsonPath = Join-Path $workRoot 'live.json'
-    $liveUrl = "$BaseUrl/$targetSlug.json"
-    $deadline = [DateTime]::UtcNow.AddSeconds($DeployTimeoutSeconds)
-    $deployed = $false
-    do {
-        & curl.exe -4 -sS -L `
-            --retry 2 --retry-all-errors --connect-timeout 10 --max-time 30 `
-            -o $liveJsonPath $liveUrl
-        if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $liveJsonPath)) {
-            $liveHash = (Get-FileHash -LiteralPath $liveJsonPath -Algorithm SHA256).Hash
-            if ($liveHash -eq $localHash) {
-                $deployed = $true
-                break
+    foreach ($builtVariant in $builtVariants) {
+        $localHash = (Get-FileHash -LiteralPath $builtVariant.Json -Algorithm SHA256).Hash
+        $liveJsonPath = Join-Path $workRoot ("live-" + $builtVariant.PublicSlug.Replace('/', '-') + '.json')
+        $liveUrl = "$BaseUrl/$($builtVariant.PublicSlug).json"
+        $deadline = [DateTime]::UtcNow.AddSeconds($DeployTimeoutSeconds)
+        $deployed = $false
+        do {
+            & curl.exe -4 -sS -L `
+                --retry 2 --retry-all-errors --connect-timeout 10 --max-time 30 `
+                -o $liveJsonPath $liveUrl
+            if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $liveJsonPath)) {
+                $liveHash = (Get-FileHash -LiteralPath $liveJsonPath -Algorithm SHA256).Hash
+                if ($liveHash -eq $localHash) {
+                    $deployed = $true
+                    break
+                }
             }
+            Start-Sleep -Seconds 5
+        } while ([DateTime]::UtcNow -lt $deadline)
+        if (-not $deployed) {
+            throw "Deployment did not match $liveUrl within $DeployTimeoutSeconds seconds. Notion was left as publish."
         }
-        Start-Sleep -Seconds 5
-    } while ([DateTime]::UtcNow -lt $deadline)
-    if (-not $deployed) {
-        throw "Deployment did not match $liveUrl within $DeployTimeoutSeconds seconds. Notion was left as publish."
     }
 
     Write-Step 'Marking the Notion page as published'
@@ -740,7 +824,7 @@ if final_status != "published":
 print(f"{expected_slug} status={final_status}")
 '@
     Invoke-Native -FilePath $python `
-        -ArgumentList @('-c', $statusCode, [string]$article.page_id, $targetSlug) `
+        -ArgumentList @('-X', 'utf8', '-c', $statusCode, [string]$article.page_id, $targetSlug) `
         -WorkingDirectory $NcmsProject
     Set-IdStatus -Path $realIdPath -ArticleSlug $targetSlug -Status 'published'
 
@@ -779,4 +863,3 @@ finally {
         Write-Warning 'Publishing did not complete. Notion is only marked published after a matching live deployment.'
     }
 }
-

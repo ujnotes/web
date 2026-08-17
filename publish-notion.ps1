@@ -597,6 +597,30 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=False))
         Select-Object -First 1
     Write-Utf8Text -Path $stageIdPath -Text ($stageIdLines[0] + "`n" + $stageArticleRow + "`n")
 
+    # A single-route build must also constrain every localized ID table. Leaving
+    # ID_hi.tsv (or another ID_<lang>.tsv) unfiltered makes Tiggu rebuild the
+    # entire translated site for every canonical article in a batch.
+    Get-ChildItem -LiteralPath (Split-Path -Parent $stageIdPath) -File -Filter 'ID_*.tsv' |
+        ForEach-Object {
+            $localizedLines = @([System.IO.File]::ReadAllLines($_.FullName))
+            if ($localizedLines.Count -eq 0) {
+                return
+            }
+            $localizedArticleRows = @(
+                $localizedLines |
+                    Select-Object -Skip 1 |
+                    Where-Object {
+                        $fields = @($_ -split "`t")
+                        $fields.Count -ge 2 -and $fields[1] -eq $targetSlug
+                    }
+            )
+            $localizedText = $localizedLines[0] + "`n"
+            if ($localizedArticleRows.Count -gt 0) {
+                $localizedText += ($localizedArticleRows -join "`n") + "`n"
+            }
+            Write-Utf8Text -Path $_.FullName -Text $localizedText
+        }
+
     $stageUrlPath = Join-Path $stageProject 'Config\Url.tsv'
     $stageUrlLines = @([System.IO.File]::ReadAllLines($stageUrlPath))
     $stageUrlText = $stageUrlLines[0] + "`n"

@@ -132,3 +132,25 @@ The guarded lifecycle is:
 4. The existing `web-public` push workflow deploys Firebase Hosting.
 5. The workflow waits until the live JSON SHA-256 matches the generated file.
 6. NCMS changes the Notion page from `publish` to `published`.
+
+### Local subtree publish
+
+For an existing canonical article and all canonical descendants, use the batch
+wrapper instead of queuing and publishing rows manually:
+
+```powershell
+.\publish-notion-subtree.ps1 `
+  -RootSlug computer/game/doom `
+  -CoverSource H:\Resource\doom.jpg
+```
+
+The source must already be a valid JPEG. The wrapper discovers eligible
+`publish`/`published` rows in the canonical Notion database, fans the cover out
+to their case-preserving resource paths, queues only those canonical rows,
+reuses one renderer container, and calls `publish-notion.ps1` for each row.
+Nested translations are built and verified atomically. The wrapper finally
+checks each canonical `/{slug}.jpg` production response against the source
+SHA-256 and stops a renderer container that it started.
+
+Use `-DryRun` to validate the subtree, component paths, repositories, and image
+without changing files, Notion, containers, git, or production.

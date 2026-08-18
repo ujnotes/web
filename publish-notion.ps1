@@ -42,6 +42,14 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+# Python -X utf8 writes UTF-8; Windows console capture defaults to OEM (CP437)
+# and will mojibake Hindi titles/descriptions before ConvertFrom-Json.
+$script:Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+[Console]::InputEncoding = $script:Utf8NoBom
+[Console]::OutputEncoding = $script:Utf8NoBom
+$OutputEncoding = $script:Utf8NoBom
+$env:PYTHONIOENCODING = 'utf-8'
+$env:PYTHONUTF8 = '1'
 $PSNativeCommandUseErrorActionPreference = $false
 
 function Write-Step {
@@ -77,6 +85,18 @@ function Invoke-Native {
     finally {
         Pop-Location
     }
+}
+
+
+function Read-Utf8Text {
+    param(
+        [Parameter(Mandatory)] [string]$Path
+    )
+
+    [System.IO.File]::ReadAllText(
+        $Path,
+        [System.Text.UTF8Encoding]::new($false)
+    )
 }
 
 function Write-Utf8Text {
@@ -475,7 +495,7 @@ result = {
 }
 if requested_language:
     result["requested_language"] = requested_language
-print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=False))
+print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
 '@
 
     Push-Location $NcmsProject
@@ -536,7 +556,7 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=False))
         New-Item -ItemType Directory -Path (Split-Path -Parent $realVariantComponent) -Force | Out-Null
         Copy-Item -LiteralPath $renderVariantComponent -Destination $realVariantComponent -Force
 
-        $componentText = [System.IO.File]::ReadAllText($realVariantComponent)
+        $componentText = Read-Utf8Text -Path $realVariantComponent
         if ((Test-Path -LiteralPath $coverSource) -and -not $componentText.Contains('Component_cover.php')) {
             $coverAlt = ([string]$variant.title).Replace('\', '\\').Replace("'", "\'")
             $coverMarkup = "<?php `$alt='$coverAlt'; require('../HTML/Fragment/Component_cover.php') ?>"
@@ -696,7 +716,7 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=False))
                 throw "Required build artifact is missing or empty: $artifact"
             }
         }
-        $builtJson = [System.IO.File]::ReadAllText($stageVariantJson) | ConvertFrom-Json
+        $builtJson = (Read-Utf8Text -Path $stageVariantJson) | ConvertFrom-Json
         if ([string]$builtJson.desc -ne [string]$variant.description) {
             throw "Built JSON description does not match Notion for '$variantPublicSlug'."
         }

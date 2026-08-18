@@ -42,6 +42,14 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+# Python -X utf8 writes UTF-8; Windows console capture defaults to OEM (CP437)
+# and will mojibake Hindi titles/descriptions before ConvertFrom-Json.
+$script:Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+[Console]::InputEncoding = $script:Utf8NoBom
+[Console]::OutputEncoding = $script:Utf8NoBom
+$OutputEncoding = $script:Utf8NoBom
+$env:PYTHONIOENCODING = 'utf-8'
+$env:PYTHONUTF8 = '1'
 $PSNativeCommandUseErrorActionPreference = $false
 
 function Write-Step {

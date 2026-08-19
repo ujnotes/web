@@ -245,7 +245,8 @@ import json
 import sys
 import ncms_fetch as ncms
 
-items = json.loads(sys.argv[1])
+with open(sys.argv[1], encoding='utf-8') as handle:
+    items = json.load(handle)
 for item in items:
     page = ncms.notion.pages.retrieve(page_id=item["page_id"])
     actual = ncms.page_slug(page)
@@ -262,10 +263,19 @@ for item in items:
         )
 print(f"Queued {len(items)} canonical rows")
 '@
-$articleJson = ConvertTo-Json -InputObject $articles -Compress
-Invoke-Native -FilePath $python `
-    -ArgumentList @('-X', 'utf8', '-c', $queueCode, $articleJson) `
-    -WorkingDirectory $NcmsProject
+$queueFile = Join-Path $env:TEMP ('ujnotes-subtree-queue-{0}.json' -f [guid]::NewGuid().ToString('n'))
+try {
+    $articleJson = ConvertTo-Json -InputObject $articles -Compress -Depth 6
+    [System.IO.File]::WriteAllText($queueFile, $articleJson, [System.Text.UTF8Encoding]::new($false))
+    Invoke-Native -FilePath $python `
+        -ArgumentList @('-X', 'utf8', '-c', $queueCode, $queueFile) `
+        -WorkingDirectory $NcmsProject
+}
+finally {
+    if (Test-Path -LiteralPath $queueFile) {
+        Remove-Item -LiteralPath $queueFile -Force
+    }
+}
 
 $webSiteWasRunning = $false
 & docker info --format '{{.ServerVersion}}' *> $null

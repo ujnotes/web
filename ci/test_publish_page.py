@@ -2027,6 +2027,12 @@ class PublicationMergeTests(unittest.TestCase):
         )
         self.assertIn("(* for all; hi/<slug> for one language)", workflow)
         self.assertIn('REQUESTED_SLUG:-}" == "*"', workflow)
+        self.assertIn("workflow_dispatch:", workflow)
+        self.assertIn("  # schedule:", workflow)
+        self.assertIn('#   - cron: "*/15 * * * *"', workflow)
+        self.assertNotRegex(workflow, r"(?m)^  schedule:")
+        self.assertIn("  # repository_dispatch:", workflow)
+        self.assertNotRegex(workflow, r"(?m)^  repository_dispatch:")
 
 
 if __name__ == "__main__":

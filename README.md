@@ -101,16 +101,30 @@ clone_repo "tiggu" "https://github.com/blank-org/tiggu.git"
 
 - Then build and run docker for `web/project`
 
-## Notion publication workflow
+## Production publication
 
-`.github/workflows/publish-notion.yml` polls the production Notion database every
-15 minutes and can also be started manually. A scheduled run is a successful no-op
-when there are no queued pages. It refuses to choose between multiple
-`Status=publish` pages; use the manual `slug` input to select one explicitly.
+`ujnotes.com` is Firebase Hosting. **Deploy to Firebase Hosting on merge** in
+`ujnotes/web-public` deploys whenever `main` is pushed.
 
-Manual runs default to `dry_run=true`. A dry run fetches through NCMS, renders the
-article with Cutie/Tiggu, validates the generated files, and uploads an artifact.
-It does not push either website repository or change Notion.
+That push is **manual**. Scheduled Notion polling (every 15 minutes) is parked.
+Do not restore the cron. A URL hook / dashboard trigger is the planned
+replacement.
+
+Content reaches `web-public` by:
+
+1. Local scripts in this repo: `publish-notion.ps1` /
+   `publish-notion-subtree.ps1` (the usual path). They render, commit, and push
+   `web-site` and `web-public`.
+2. Optional GitHub Action `.github/workflows/publish-page.yml`
+   (`Publish page from Source`), started by hand (`workflow_dispatch`). Inputs:
+   `source` (`notion` or `github`), optional `slug` (`*` = every published
+   article from git; `hi/<slug>` for one language), `dry_run` (default
+   **false**), `rerender_published`.
+
+A dry run fetches through NCMS when `source` is `notion`, renders with
+Cutie/Tiggu, validates the generated files, and uploads an artifact. It does
+not push either website repository or change Notion. The workflow refuses to
+choose between multiple `Status=publish` pages; pass `slug` to select one.
 
 The `prod` GitHub environment must define:
 

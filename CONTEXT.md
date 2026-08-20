@@ -269,16 +269,21 @@ No requirement for translation completeness.
 # Known Build Process
 
 ```
-CMS
+CMS / git source
     ↓
-render.sh
+local publisher or workflow_dispatch
     ↓
-build/public
+build/public  (ujnotes/web-public)
     ↓
-Git
+manual git push
     ↓
-CI/CD
+Firebase Hosting Action
+    ↓
+ujnotes.com
 ```
+
+Scheduled Notion polling is parked. Production currently depends on that
+manual `web-public` push. A URL hook / dashboard trigger is planned.
 
 ---
 

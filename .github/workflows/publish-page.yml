@@ -1,3 +1,8 @@
+# Guarded publisher for ujnotes.com.
+# Current trigger: workflow_dispatch (manual) plus local publish-notion*.ps1
+# pushes to ujnotes/web-public. Firebase Hosting deploys on that push.
+# Notion cron polling is parked. Planned replacement: URL hook / dashboard
+# trigger (repository_dispatch). Do not restore the 15-minute schedule.
 name: Publish page from Source
 
 on:
@@ -25,8 +30,13 @@ on:
         required: false
         default: false
         type: boolean
+  # Parked: 15-minute Notion queue poll. Replaced later by a URL hook /
+  # dashboard trigger. Production currently depends on a manual push.
   # schedule:
   #   - cron: "*/15 * * * *"
+  # Planned, not enabled:
+  # repository_dispatch:
+  #   types: [publish-page]
 
 permissions:
   contents: read

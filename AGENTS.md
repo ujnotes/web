@@ -13,6 +13,12 @@ Follow the workspace conventions in the parent AGENTS file [`../../AGENTS.md`](.
 - Never use `/{slug}/index.jpg` as the Url.tsv / Tiggu / local preview cover URL.
 - See parent `AGENTS.md` section “Ujnotes article cover URLs” for the full rule.
 
+## Production deploy trigger
+
+- `ujnotes.com` deploys when `ujnotes/web-public` `main` is pushed (Firebase Hosting GitHub Action).
+- That push is manual: local `publish-notion.ps1` / `publish-notion-subtree.ps1`, or the `Publish page from Source` `workflow_dispatch` on `ujnotes/web`.
+- Notion database polling (15-minute cron) is parked. Do not restore it. The planned replacement is a URL hook / dashboard trigger.
+
 ## Local Notion subtree publishing
 
 - Use `publish-notion-subtree.ps1` for an existing canonical article and its descendant articles. It is the supported path for shared-cover fan-out, one-time canonical queuing, warm-container batch publication, atomic nested translations, and production cover hash verification.

@@ -307,10 +307,11 @@ short_source = "/" + slug.rsplit("/", 1)[-1]
 destination = "/" + slug
 existing_short = next((item for item in redirects if item.get("source") == short_source), None)
 if existing_short and existing_short.get("destination") != destination:
-    raise RuntimeError(
-        f"Shortcut {short_source!r} already points to {existing_short.get('destination')!r}"
+    print(
+        f"WARNING: Skipping shortcut {short_source!r}; already points to {existing_short.get('destination')!r}",
+        file=sys.stderr,
     )
-if not existing_short:
+elif not existing_short:
     redirects.append({"source": short_source, "destination": destination, "type": 301})
 
 required = [

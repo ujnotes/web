@@ -11,6 +11,7 @@ Follow the workspace conventions in the parent AGENTS file [`../../AGENTS.md`](.
 
 - Fetch and list article covers as `/{slug}.jpg` (example: `https://ujnotes.local/world/philosophy/life.jpg?mode=prod`).
 - Never use `/{slug}/index.jpg` as the Url.tsv / Tiggu / local preview cover URL.
+- Baked `interim`/`public` preview hosts map `/{slug}.jpg` via `.htaccess`; production maps the same canonical URL via `firebase.json` rewrites onto `/{slug}/index.jpg`.
 - See parent `AGENTS.md` section “Ujnotes article cover URLs” for the full rule.
 
 ## Production deploy trigger

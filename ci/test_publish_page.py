@@ -1976,6 +1976,28 @@ class PublicationMergeTests(unittest.TestCase):
                     )
                 )
 
+    def test_merge_firebase_adds_canonical_index_rewrites(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            firebase = Path(temp_dir) / "firebase.json"
+            write(firebase, json.dumps({"hosting": {"rewrites": []}}))
+            publish_page.merge_firebase(firebase, "world/example", has_cover=True)
+            hosting = json.loads(firebase.read_text(encoding="utf-8"))["hosting"]
+            self.assertEqual(
+                {
+                    "^/(.+)\\.json$",
+                    "^/(.+)\\.jpg$",
+                    "^/(.+)\\.svg$",
+                },
+                {item.get("regex") for item in hosting["rewrites"] if item.get("regex")},
+            )
+            self.assertIn(
+                {
+                    "source": "/world/example.jpg",
+                    "destination": "/world/example/index.jpg",
+                },
+                hosting["rewrites"],
+            )
+
     def test_root_firebase_json_uses_flat_public_artifact(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             firebase = Path(temp_dir) / "firebase.json"
@@ -2001,6 +2023,7 @@ class PublicationMergeTests(unittest.TestCase):
                 {
                     (item["source"], item["destination"])
                     for item in hosting["rewrites"]
+                    if "source" in item
                 },
             )
 

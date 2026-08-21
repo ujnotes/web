@@ -682,6 +682,27 @@ def localized_home_variants(variants):
     ]
 
 
+CANONICAL_INDEX_REWRITES = (
+    {"regex": r"^/(.+)\.json$", "destination": "/:1/index.json"},
+    {"regex": r"^/(.+)\.jpg$", "destination": "/:1/index.jpg"},
+    {"regex": r"^/(.+)\.svg$", "destination": "/:1/index.svg"},
+)
+
+
+def ensure_canonical_index_rewrites(rewrites):
+    """Map /{slug}.jpg|.json|.svg onto /{slug}/index.* when the flat file is absent.
+
+    Firebase only applies a rewrite if the requested path is not already a
+    static file, so root-level assets such as /about.jpg stay as-is.
+    """
+    existing = {item.get("regex") for item in rewrites if item.get("regex")}
+    for wanted in reversed(CANONICAL_INDEX_REWRITES):
+        if wanted["regex"] in existing:
+            continue
+        rewrites.insert(0, dict(wanted))
+    return rewrites
+
+
 def merge_firebase_language_home(path, language, public_slug):
     """Map /{language} to the rendered translated root page on static hosting."""
     path = Path(path)
@@ -689,6 +710,7 @@ def merge_firebase_language_home(path, language, public_slug):
         data = json.load(source)
     hosting = data.setdefault("hosting", {})
     rewrites = hosting.setdefault("rewrites", [])
+    ensure_canonical_index_rewrites(rewrites)
     required = [
         {
             "source": f"/{language}",
@@ -1372,6 +1394,7 @@ def merge_firebase(path, slug, has_cover, add_shortcut=True):
     hosting = data.setdefault("hosting", {})
     redirects = hosting.setdefault("redirects", [])
     rewrites = hosting.setdefault("rewrites", [])
+    ensure_canonical_index_rewrites(rewrites)
 
     if add_shortcut and "/" in slug:
         shortcut = "/" + slug.rsplit("/", 1)[-1]

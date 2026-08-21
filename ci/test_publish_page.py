@@ -1547,6 +1547,10 @@ class PublicationMergeTests(unittest.TestCase):
             )
             self.assertIn(
                 "hi/\tmenu\t",
+                (stage / "Config/Url_hi.tsv").read_text(encoding="utf-8"),
+            )
+            self.assertNotIn(
+                "hi/\tmenu\t",
                 (stage / "Config/Url.tsv").read_text(encoding="utf-8"),
             )
             source_sitemap = (source / "Root/Site/sitemap.xml").read_text(
@@ -1914,8 +1918,10 @@ class PublicationMergeTests(unittest.TestCase):
             url_text = (stage / "Config/Url.tsv").read_text(encoding="utf-8")
             self.assertIn("\tscript\tjs", url_text)
             self.assertNotIn("\nscript\tjs\n", url_text)
-            # Translated home pages require /{lang}/menu in Url.tsv for Tiggu.
-            self.assertIn("hi/\tmenu\t", url_text)
+            self.assertNotIn("hi/\tmenu\t", url_text)
+            # Translated home pages require /{lang}/menu in Url_<lang>.tsv for Tiggu.
+            url_hi_text = (stage / "Config/Url_hi.tsv").read_text(encoding="utf-8")
+            self.assertIn("hi/\tmenu\t", url_hi_text)
             # Missing Resource cover: drop Url row so Tiggu never wget's it.
             self.assertNotIn("about_site", url_text)
             self.assertNotIn("about_site/\tindex\tjpg", url_text)

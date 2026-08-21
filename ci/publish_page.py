@@ -494,6 +494,31 @@ def parse_url_row(line):
     return fields[:3]
 
 
+def language_url_tsv(language="en"):
+    """Return Config/Url_<lang>.tsv for language-specific URL rows."""
+    language = str(language or "en").lower()
+    return Path("Config", f"Url_{language}.tsv")
+
+
+def resolve_language_url_tsv(root, language="en"):
+    """Prefer Url_<lang>.tsv; English used to live in the common Url.tsv."""
+    relative = language_url_tsv(language)
+    path = safe_target(root, relative)
+    if path.is_file():
+        return relative, path
+    fallback = Path("Config", "Url.tsv")
+    return fallback, safe_target(root, fallback)
+
+
+def append_url_row_line(path, row):
+    lines = read_lines(path) if Path(path).is_file() else []
+    if not lines:
+        lines = ["Path\tName\tExtension"]
+    if row not in lines[1:]:
+        lines.append(row)
+        write_lines(path, lines)
+
+
 COVER_EXTENSIONS = frozenset({"jpg", "jpeg", "png", "webp"})
 
 
@@ -864,14 +889,24 @@ def prepare_source(args):
         variant["source_id"] = source_id.relative_to(source).as_posix()
         source_ids.append(variant["source_id"])
 
-        source_url = safe_target(source, Path("Config", f"Url{suffix}.tsv"))
-        if not source_url.is_file() or not read_lines(source_url):
-            default_url = safe_target(source, Path("Config", "Url.tsv"))
-            write_lines(source_url, read_lines(default_url))
-        merge_url_row(source_url, slug, has_cover)
-        variant["source_url"] = source_url.relative_to(source).as_posix()
+        relative_url, source_url = resolve_language_url_tsv(source, language)
+        if language == "en":
+            common_url = safe_target(source, Path("Config", "Url.tsv"))
+            if not common_url.is_file() or not read_lines(common_url):
+                write_lines(common_url, ["Path\tName\tExtension"])
+            merge_url_row(common_url, slug, has_cover)
+            assert_cover_url_row(common_url, slug, has_cover)
+            if not source_url.is_file() or not read_lines(source_url):
+                write_lines(source_url, ["Path\tName\tExtension"])
+        else:
+            if not source_url.is_file() or not read_lines(source_url):
+                write_lines(source_url, ["Path\tName\tExtension"])
+            localized = resolve_component_cover(source, f"{language}/{slug}")
+            merge_url_row(source_url, slug, localized is not None)
+            if localized is not None:
+                assert_cover_url_row(source_url, slug, True)
+        variant["source_url"] = relative_url.as_posix()
         source_urls.append(variant["source_url"])
-        assert_cover_url_row(source_url, slug, has_cover)
 
     source_sitemap = safe_target(source, Path("Root", "Site", "sitemap.xml"))
     for variant in variants:
@@ -984,11 +1019,8 @@ def prepare_github_article(source, slug, metadata_path):
             raise RuntimeError(f"GitHub source is missing ID map: {source_id}")
         fields = article_metadata_from_id(source_id, slug)
         source_component = resolve_article_component(source, slug, language)
-        relative_url = Path("Config", f"Url{suffix}.tsv").as_posix()
-        source_url = safe_target(source, relative_url)
-        if not source_url.is_file():
-            relative_url = Path("Config", "Url.tsv").as_posix()
-            source_url = safe_target(source, relative_url)
+        relative_url, source_url = resolve_language_url_tsv(source, language)
+        relative_url = relative_url.as_posix()
         if not source_url.is_file():
             raise RuntimeError(f"GitHub source is missing URL map: {source_url}")
 
@@ -1012,8 +1044,20 @@ def prepare_github_article(source, slug, metadata_path):
     cover = resolve_component_cover(source, slug)
     cover_is_file = cover is not None and cover.is_file()
     has_cover = cover_is_file
-    for source_url in dict.fromkeys(source_urls):
-        assert_cover_url_row(safe_target(source, source_url), slug, has_cover)
+    if has_cover:
+        assert_cover_url_row(
+            safe_target(source, Path("Config", "Url.tsv")), slug, True
+        )
+        for variant in variants:
+            if variant["language"] == "en":
+                continue
+            localized = resolve_component_cover(
+                source, f"{variant['language']}/{slug}"
+            )
+            if localized is not None:
+                assert_cover_url_row(
+                    safe_target(source, variant["source_url"]), slug, True
+                )
 
     english_id = next(
         (
@@ -1122,11 +1166,8 @@ def prepare_github_all(source, metadata_path):
                 raise RuntimeError(f"GitHub source is missing ID map: {id_path}")
             source_ids.append(relative_id)
 
-            relative_url = Path("Config", f"Url{suffix}.tsv").as_posix()
-            url_path = safe_target(source, relative_url)
-            if not url_path.is_file():
-                relative_url = Path("Config", "Url.tsv").as_posix()
-                url_path = safe_target(source, relative_url)
+            relative_url, url_path = resolve_language_url_tsv(source, language)
+            relative_url = relative_url.as_posix()
             if not url_path.is_file():
                 raise RuntimeError(f"GitHub source is missing URL map: {url_path}")
             source_urls.append(relative_url)
@@ -1268,20 +1309,13 @@ def create_stage(args):
                 output.append("\t".join(normalized))
             write_lines(url_path, output)
 
-        # Tiggu only reads Config/Url.tsv. Translated home pages still need
-        # /{lang}/menu fetched into public/{lang}/menu.html (open sidebar).
-        default_url = safe_target(stage, Path("Config", "Url.tsv"))
-        url_lines = read_lines(default_url)
-        if not url_lines:
-            raise RuntimeError("Default URL manifest is empty")
-        seen_rows = set(url_lines[1:])
+        # Language menus live in Url_<lang>.tsv so Tiggu fetches /{lang}/menu.
         for menu_slug in localized_menu_slugs(variants):
             language = menu_slug.split("/", 1)[0]
-            row = "\t".join([f"{language}/", "menu", ""])
-            if row not in seen_rows:
-                url_lines.append(row)
-                seen_rows.add(row)
-        write_lines(default_url, url_lines)
+            lang_path = safe_target(stage, language_url_tsv(language))
+            append_url_row_line(
+                lang_path, "\t".join([f"{language}/", "menu", ""])
+            )
         return
 
     if metadata.get("source_cover"):
@@ -1326,7 +1360,8 @@ def create_stage(args):
             append_url_row(normalized)
     for menu_slug in localized_menu_slugs(variants):
         language = menu_slug.split("/", 1)[0]
-        append_url_row([f"{language}/", "menu", ""])
+        lang_path = safe_target(stage, language_url_tsv(language))
+        append_url_row_line(lang_path, "\t".join([f"{language}/", "menu", ""]))
     write_lines(default_url, url_lines)
 
 

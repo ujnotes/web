@@ -108,7 +108,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: blank-org/tiggu
-          ref: 12f9a7fe62814fd0d7b583d95d13ab79c6b8d8fa
+          ref: 5ec8d62c6cd04207bc99dacb0a3f79a677eb2805
           path: tiggu
 
       - name: Check out NCMS

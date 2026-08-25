@@ -37,7 +37,9 @@ param(
 
     [switch]$DryRun,
 
-    [switch]$KeepBuildContainer
+    [switch]$KeepBuildContainer,
+
+    [switch]$Resume
 )
 
 Set-StrictMode -Version Latest
@@ -111,6 +113,8 @@ function Write-Utf8Text {
         [System.Text.UTF8Encoding]::new($false)
     )
 }
+
+. (Join-Path $PSScriptRoot 'Repair-GitTextFiles.ps1')
 
 function Write-LinesPreservingNewline {
     param(
@@ -386,6 +390,52 @@ function Remove-WorkDirectory {
     Remove-Item -LiteralPath $resolved -Recurse -Force
 }
 
+function Import-PipelineStateModule {
+    $path = 'H:\Console\PipelineState.ps1'
+    if (Test-Path -LiteralPath $path) {
+        return $path
+    }
+    return $null
+}
+
+function New-PublishResumeSnapshot {
+    [ordered]@{
+        workName               = $workName
+        workRoot               = $workRoot
+        renderRoot             = $renderRoot
+        stageProject           = $stageProject
+        targetSlug             = $targetSlug
+        slugPath               = $slugPath
+        hasCover               = [bool]$hasCover
+        alreadyPublishedSlugs  = @($alreadyPublishedSlugs)
+        article                = $article
+        variants               = @($variants)
+        builtVariants          = @($builtVariants)
+        ncmsProject            = $NcmsProject
+        baseUrl                = $BaseUrl
+        deployTimeoutSeconds   = $DeployTimeoutSeconds
+        keepBuildContainer     = [bool]$KeepBuildContainer
+        slugArgument           = [string]$Slug
+        dryRun                 = [bool]$DryRun
+    }
+}
+
+function Enter-Stage {
+    param([Parameter(Mandatory)] [string]$Id)
+    if (Get-Command -Name Enter-PublishStage -ErrorAction SilentlyContinue) {
+        return [bool](Enter-PublishStage -Id $Id)
+    }
+    Write-Step $Id
+    return $true
+}
+
+function Complete-Stage {
+    param([Parameter(Mandatory)] [string]$Id)
+    if (Get-Command -Name Complete-PublishStage -ErrorAction SilentlyContinue) {
+        Complete-PublishStage -Id $Id -Snapshot (New-PublishResumeSnapshot)
+    }
+}
+
 $projectRoot = (Resolve-Path -LiteralPath $PSScriptRoot).Path
 $websiteRoot = (Resolve-Path -LiteralPath (Split-Path -Parent $projectRoot)).Path
 $siteProject = Join-Path $websiteRoot 'site\project'
@@ -412,22 +462,101 @@ if ($Slug) {
 }
 $BaseUrl = $BaseUrl.TrimEnd('/')
 
-$workName = '.ncms-publish-' + [Guid]::NewGuid().ToString('N')
-$workRoot = Join-Path $websiteRoot $workName
-$renderRoot = Join-Path $workRoot 'render'
-$stageProject = Join-Path $workRoot 'site'
+# Dot-source at script scope. Sourcing inside a function would define
+# Get-PublishCheckpoint (and the rest) only for that function call.
+$pipelineStatePath = Import-PipelineStateModule
+$pipelineLoaded = $false
+if ($pipelineStatePath) {
+    . $pipelineStatePath
+    $pipelineLoaded = $true
+}
+$article = $null
+$variants = @()
+$builtVariants = @()
+$targetSlug = ''
+$slugPath = ''
+$hasCover = $false
+$alreadyPublishedSlugs = @()
+$keepWorkRoot = $false
 $realIdPath = Join-Path $siteProject 'Config\ID.tsv'
 $realUrlPath = Join-Path $siteProject 'Config\Url.tsv'
 $realSitemapPath = Join-Path $siteProject 'root\Site\sitemap.xml'
-$realIdBackup = Join-Path $workRoot 'real-ID.tsv.backup'
-$realIdTemporarilyFiltered = $false
 $containerStarted = $false
 $webSiteWasRunning = $false
 $completed = $false
+$realIdTemporarilyFiltered = $false
+$realIdBackup = $null
 
-New-Item -ItemType Directory -Path $renderRoot -Force | Out-Null
+if ($Resume) {
+    if (-not $pipelineLoaded) {
+        throw 'Resume requires H:\Console\PipelineState.ps1.'
+    }
+    $checkpoint = Get-PublishCheckpoint
+    if ($Slug -and $checkpoint.slug -and $Slug -ne [string]$checkpoint.slug) {
+        throw "Resume checkpoint is for '$($checkpoint.slug)', not '$Slug'."
+    }
+    $workName = [string]$checkpoint.workName
+    $workRoot = [string]$checkpoint.workRoot
+    $renderRoot = [string]$checkpoint.renderRoot
+    $stageProject = [string]$checkpoint.stageProject
+    $targetSlug = [string]$checkpoint.targetSlug
+    $slugPath = [string]$checkpoint.slugPath
+    $hasCover = [bool]$checkpoint.hasCover
+    $alreadyPublishedSlugs = @($checkpoint.alreadyPublishedSlugs)
+    $article = $checkpoint.article
+    $variants = @($checkpoint.variants)
+    $builtVariants = @($checkpoint.builtVariants)
+    if ($checkpoint.dryRun) {
+        $DryRun = $true
+    }
+    if ($checkpoint.slugArgument -and -not $Slug) {
+        $Slug = [string]$checkpoint.slugArgument
+    }
+    $realIdBackup = Join-Path $workRoot 'real-ID.tsv.backup'
+    if (-not (Test-Path -LiteralPath $workRoot)) {
+        throw "Resume work directory is missing: $workRoot"
+    }
+    Resume-PublishPipeline -Checkpoint $checkpoint
+    $failedId = [string]$checkpoint.failedStage
+    $stageIds = @((Get-PublishStageCatalog).Id)
+    if ($stageIds.IndexOf($failedId) -ge $stageIds.IndexOf('start-renderer')) {
+        Wait-Docker
+        $runningServices = @(
+            & docker compose -f $composeFile -p ujnotes ps --status running --services 2>$null
+        )
+        $webSiteWasRunning = $runningServices -contains 'web-site'
+        Invoke-Native -FilePath 'docker' `
+            -ArgumentList @('compose', '-f', $composeFile, '-p', 'ujnotes', 'up', '-d', 'web-site') `
+            -WorkingDirectory $projectRoot
+        $containerStarted = $true
+    }
+}
+else {
+    if ($pipelineLoaded -and (Test-PublishCheckpoint)) {
+        $previous = Get-PublishCheckpoint
+        if ($previous.workRoot) {
+            try {
+                Remove-WorkDirectory -Path ([string]$previous.workRoot) -AllowedParent $websiteRoot
+            }
+            catch {
+                Write-Warning $_.Exception.Message
+            }
+        }
+    }
+    $workName = '.ncms-publish-' + [Guid]::NewGuid().ToString('N')
+    $workRoot = Join-Path $websiteRoot $workName
+    $renderRoot = Join-Path $workRoot 'render'
+    $stageProject = Join-Path $workRoot 'site'
+    $realIdBackup = Join-Path $workRoot 'real-ID.tsv.backup'
+    New-Item -ItemType Directory -Path $renderRoot -Force | Out-Null
+    $taskName = if ($Slug) { 'PublishArticle' } else { 'PublishQueued' }
+    if ($pipelineLoaded) {
+        Initialize-PublishPipeline -Task $taskName -Slug $Slug -DryRun:$DryRun
+    }
+}
 
 try {
+    if (Enter-Stage 'fetch') {
     Write-Step 'Fetching and rendering one Notion article'
     $renderCode = @'
 import json
@@ -536,18 +665,26 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
     }
 
     Write-Host "Selected: $targetSlug ($($article.title))" -ForegroundColor Green
+    if (Get-Command -Name Set-PublishPipelineSlug -ErrorAction SilentlyContinue) {
+        Set-PublishPipelineSlug -Slug $targetSlug
+    }
+    Complete-Stage 'fetch'
     if ($DryRun) {
         Write-Host 'Dry run passed. No source, git, deployment, or Notion status changes were made.' -ForegroundColor Green
+        if (Get-Command -Name Skip-RemainingPublishStages -ErrorAction SilentlyContinue) {
+            Skip-RemainingPublishStages
+        }
         $completed = $true
         return
     }
+    }
 
+    if (Enter-Stage 'update-source') {
     $publicStatus = @(Invoke-Native -FilePath 'git' -ArgumentList @('-C', $publicRepo, 'status', '--porcelain') -WorkingDirectory $projectRoot -Capture)
     if ($publicStatus.Count -gt 0 -and ($publicStatus -join '').Trim()) {
         throw "Public repository is not clean:`n$($publicStatus -join "`n")"
     }
 
-    Write-Step 'Updating the local generated source'
     $coverSource = Join-Path $siteProject ("root\Resource\" + $slugPath + "\index.jpg")
     $realComponent = $null
     foreach ($variant in $variants) {
@@ -595,8 +732,10 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
     $hasCover = [System.IO.File]::ReadAllText($realComponent).Contains('Component_cover.php')
     Merge-UrlRow -Path $realUrlPath -ArticleSlug $targetSlug -HasCover $hasCover
     Add-SitemapUrl -Path $realSitemapPath -Url "$BaseUrl/$targetSlug"
+    Complete-Stage 'update-source'
+    }
 
-    Write-Step 'Creating the isolated Cutie build'
+    if (Enter-Stage 'create-stage') {
     $exclude = @(
         (Join-Path $siteProject '.git'),
         (Join-Path $siteProject 'HTML'),
@@ -649,7 +788,10 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
         $stageUrlText += "$targetSlug/`tindex`tjpg`n"
     }
     Write-Utf8Text -Path $stageUrlPath -Text $stageUrlText
+    Complete-Stage 'create-stage'
+    }
 
+    if (Enter-Stage 'start-renderer') {
     Wait-Docker
     $runningServices = @(
         & docker compose -f $composeFile -p ujnotes ps --status running --services 2>$null
@@ -668,7 +810,10 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
             'command -v wget >/dev/null 2>&1 && command -v minify >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends wget minify)'
         ) `
         -WorkingDirectory $projectRoot
+    Complete-Stage 'start-renderer'
+    }
 
+    if (Enter-Stage 'render-route') {
     Copy-Item -LiteralPath $realIdPath -Destination $realIdBackup
     $realLines = @([System.IO.File]::ReadAllLines($realIdPath))
     $filteredRealLines = foreach ($line in $realLines) {
@@ -738,8 +883,10 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
             Language = [string]$variant.language
         }
     }
+    Complete-Stage 'render-route'
+    }
 
-    Write-Step 'Updating the public repository'
+    if (Enter-Stage 'update-public') {
     foreach ($builtVariant in $builtVariants) {
         $publicTarget = Join-Path $publicRepo ("public\" + $builtVariant.PublicSlug.Replace('/', '\'))
         New-Item -ItemType Directory -Path $publicTarget -Force | Out-Null
@@ -797,6 +944,9 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
         $gitPaths += "public/$targetSlug/index.jpg"
     }
     $gitPaths += $legacyGitPaths
+    foreach ($gitPath in $gitPaths) {
+        Repair-GitTextPath -Path (Join-Path $publicRepo ($gitPath.Replace('/', '\')))
+    }
     Invoke-Native -FilePath 'git' -ArgumentList (@('add', '--') + $gitPaths) -WorkingDirectory $publicRepo
     Invoke-Native -FilePath 'git' -ArgumentList @('diff', '--cached', '--check') -WorkingDirectory $publicRepo
 
@@ -811,11 +961,15 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
     else {
         Write-Host 'No new public commit was needed; verifying the existing deployment.' -ForegroundColor Yellow
     }
+    Complete-Stage 'update-public'
+    }
 
-    Write-Step 'Pushing the public site'
+    if (Enter-Stage 'push-public') {
     Invoke-Native -FilePath 'git' -ArgumentList @('push', 'origin', 'main') -WorkingDirectory $publicRepo
+    Complete-Stage 'push-public'
+    }
 
-    Write-Step 'Waiting for the deployed JSON to match'
+    if (Enter-Stage 'verify-live') {
     foreach ($builtVariant in $builtVariants) {
         $localHash = (Get-FileHash -LiteralPath $builtVariant.Json -Algorithm SHA256).Hash
         $liveJsonPath = Join-Path $workRoot ("live-" + $builtVariant.PublicSlug.Replace('/', '-') + '.json')
@@ -839,8 +993,10 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
             throw "Deployment did not match $liveUrl within $DeployTimeoutSeconds seconds. Notion was left as publish."
         }
     }
+    Complete-Stage 'verify-live'
+    }
 
-    Write-Step 'Marking the Notion page as published'
+    if (Enter-Stage 'mark-published') {
     $statusCode = @'
 import sys
 import ncms_fetch as ncms
@@ -880,6 +1036,18 @@ print(f"{expected_slug} status={final_status}")
 
     $completed = $true
     Write-Host "`nPublished: $BaseUrl/$targetSlug" -ForegroundColor Green
+    Complete-Stage 'mark-published'
+    if (Get-Command -Name Complete-PublishPipeline -ErrorAction SilentlyContinue) {
+        Complete-PublishPipeline -Summary "Published $BaseUrl/$targetSlug"
+    }
+    }
+}
+catch {
+    $keepWorkRoot = $true
+    if (Get-Command -Name Fail-PublishPipeline -ErrorAction SilentlyContinue) {
+        Fail-PublishPipeline -ErrorRecord $_ -Snapshot (New-PublishResumeSnapshot)
+    }
+    throw
 }
 finally {
     if ($realIdTemporarilyFiltered -and (Test-Path -LiteralPath $realIdBackup)) {
@@ -897,14 +1065,15 @@ finally {
         }
     }
 
-    try {
-        Remove-WorkDirectory -Path $workRoot -AllowedParent $websiteRoot
+    if ($completed) {
+        try {
+            Remove-WorkDirectory -Path $workRoot -AllowedParent $websiteRoot
+        }
+        catch {
+            Write-Warning "Could not remove temporary work directory '$workRoot': $($_.Exception.Message)"
+        }
     }
-    catch {
-        Write-Warning "Could not remove temporary work directory '$workRoot': $($_.Exception.Message)"
-    }
-
-    if (-not $completed) {
-        Write-Warning 'Publishing did not complete. Notion is only marked published after a matching live deployment.'
+    else {
+        Write-Warning "Publishing did not complete. Work directory kept at '$workRoot' so Console can continue from the failed stage. Notion is only marked published after a matching live deployment."
     }
 }

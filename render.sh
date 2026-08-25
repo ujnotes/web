@@ -51,4 +51,4 @@ find "$TEMP_DIR" -mindepth 1 -maxdepth 2
 
 copy_dot_dirs site/project/interim project/build/interim .js-source.sha256
 copy_dot_dirs site/project/public project/build/public
-python3 project/ci/sync_firebase_rewrites.py project/build/firebase.json project/build/public
+php project/ci/sync_firebase_rewrites.php project/build/firebase.json project/build/public

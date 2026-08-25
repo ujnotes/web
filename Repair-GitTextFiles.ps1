@@ -25,7 +25,11 @@ function Test-GitTextPath {
 }
 
 function ConvertTo-GitLfText {
-    param([Parameter(Mandatory)] [string]$Text)
+    param(
+        [Parameter(Mandatory)]
+        [AllowEmptyString()]
+        [string]$Text
+    )
 
     $value = $Text
     if ($value.Length -gt 0 -and $value[0] -eq [char]0xFEFF) {

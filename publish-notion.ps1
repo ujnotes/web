@@ -851,21 +851,23 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
     }
 
     if (Enter-Stage 'render-route') {
-    Copy-Item -LiteralPath $realIdPath -Destination $realIdBackup
-    $realLines = @([System.IO.File]::ReadAllLines($realIdPath))
-    $filteredRealLines = foreach ($line in $realLines) {
-        $fields = @($line -split "`t")
-        if (
-            $fields.Count -ge 2 -and
-            $fields[0] -eq 'publish' -and
-            $fields[1] -ne $targetSlug
-        ) {
-            continue
+    if ($publishRunner -eq 'docker') {
+        Copy-Item -LiteralPath $realIdPath -Destination $realIdBackup
+        $realLines = @([System.IO.File]::ReadAllLines($realIdPath))
+        $filteredRealLines = foreach ($line in $realLines) {
+            $fields = @($line -split "`t")
+            if (
+                $fields.Count -ge 2 -and
+                $fields[0] -eq 'publish' -and
+                $fields[1] -ne $targetSlug
+            ) {
+                continue
+            }
+            $line
         }
-        $line
+        Write-Utf8Text -Path $realIdPath -Text (($filteredRealLines -join "`n") + "`n")
+        $realIdTemporarilyFiltered = $true
     }
-    Write-Utf8Text -Path $realIdPath -Text (($filteredRealLines -join "`n") + "`n")
-    $realIdTemporarilyFiltered = $true
 
     $containerStage = "/app/$workName/site"
     try {
@@ -883,8 +885,10 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
         }
     }
     finally {
-        Copy-Item -LiteralPath $realIdBackup -Destination $realIdPath -Force
-        $realIdTemporarilyFiltered = $false
+        if ($realIdTemporarilyFiltered) {
+            Copy-Item -LiteralPath $realIdBackup -Destination $realIdPath -Force
+            $realIdTemporarilyFiltered = $false
+        }
     }
 
     $builtVariants = @()

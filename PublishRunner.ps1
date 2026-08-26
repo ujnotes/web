@@ -79,7 +79,9 @@ function Invoke-UjnotesNativeTiggu {
     $javaUnix = ConvertTo-UjnotesGitBashPath -Path $toolchain.Java
     $pythonPath = (Get-Command python -ErrorAction Stop).Source
     $pythonUnix = ConvertTo-UjnotesGitBashPath -Path $pythonPath
-    $command = 'export PATH=/usr/bin:/bin:$PATH; ' +
+    # Do not inherit Windows PATH: a curl-based wget shim in ~/bin returns HTTP 404
+    # for Tiggu downloads (Host header + origin). Use Git's curl instead.
+    $command = 'export PATH=/usr/bin:/mingw64/bin:/bin; ' +
         'export TIGGU_ORIGIN="http://127.0.0.1:8084"; ' +
         'export TIGGU_HOST_HEADER="ujnotes.local"; ' +
         $(if ($SkipScriptVersioning) { 'export TIGGU_SKIP_SCRIPT_VERSIONING=1; ' } else { '' }) +

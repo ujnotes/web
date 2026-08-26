@@ -1,7 +1,7 @@
 Set-StrictMode -Version Latest
 
 function Get-UjnotesPublishRunner {
-    param([string]$ConfigPath = 'H:\Console\config.yaml')
+    param([string]$ConfigPath = 'H:\Website\console\config.yaml')
 
     $runner = 'docker'
     if (Test-Path -LiteralPath $ConfigPath -PathType Leaf) {

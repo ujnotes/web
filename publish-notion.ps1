@@ -418,7 +418,7 @@ function Remove-WorkDirectory {
 }
 
 function Import-PipelineStateModule {
-    $path = 'H:\Console\PipelineState.ps1'
+    $path = 'H:\Website\console\PipelineState.ps1'
     if (Test-Path -LiteralPath $path) {
         return $path
     }
@@ -520,7 +520,7 @@ $realIdBackup = $null
 
 if ($Resume) {
     if (-not $pipelineLoaded) {
-        throw 'Resume requires H:\Console\PipelineState.ps1.'
+        throw 'Resume requires H:\Website\console\PipelineState.ps1.'
     }
     $checkpoint = Get-PublishCheckpoint
     if ($Slug -and $checkpoint.slug -and $Slug -ne [string]$checkpoint.slug) {

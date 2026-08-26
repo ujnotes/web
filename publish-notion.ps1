@@ -812,7 +812,16 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
     $stageUrlLines = @([System.IO.File]::ReadAllLines($stageUrlPath))
     $stageUrlText = $stageUrlLines[0] + "`n"
     if ($hasCover) {
-        $stageUrlText += "$targetSlug/`tindex`tjpg`n"
+        $coverSlash = $targetSlug.LastIndexOf('/')
+        if ($coverSlash -ge 0) {
+            $stageCoverPath = $targetSlug.Substring(0, $coverSlash + 1)
+            $stageCoverName = $targetSlug.Substring($coverSlash + 1)
+        }
+        else {
+            $stageCoverPath = ''
+            $stageCoverName = $targetSlug
+        }
+        $stageUrlText += "$stageCoverPath`t$stageCoverName`tjpg`n"
     }
     Write-Utf8Text -Path $stageUrlPath -Text $stageUrlText
     Complete-Stage 'create-stage'

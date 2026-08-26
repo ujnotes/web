@@ -39,6 +39,8 @@ param(
 
     [switch]$KeepBuildContainer,
 
+    [switch]$AllowQueuedLinks,
+
     [switch]$Resume
 )
 
@@ -436,6 +438,7 @@ function New-PublishResumeSnapshot {
         baseUrl                = $BaseUrl
         deployTimeoutSeconds   = $DeployTimeoutSeconds
         keepBuildContainer     = [bool]$KeepBuildContainer
+        allowQueuedLinks       = [bool]$AllowQueuedLinks
         slugArgument           = [string]$Slug
         dryRun                 = [bool]$DryRun
     }
@@ -532,6 +535,12 @@ if ($Resume) {
     $builtVariants = @($checkpoint.builtVariants)
     if ($checkpoint.dryRun) {
         $DryRun = $true
+    }
+    if (
+        $checkpoint.PSObject.Properties.Name -contains 'allowQueuedLinks' -and
+        $checkpoint.allowQueuedLinks
+    ) {
+        $AllowQueuedLinks = $true
     }
     if ($checkpoint.slugArgument -and -not $Slug) {
         $Slug = [string]$checkpoint.slugArgument
@@ -924,7 +933,7 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
         if ([string]$builtJson.desc -ne [string]$variant.description) {
             throw "Built JSON description does not match Notion for '$variantPublicSlug'."
         }
-        foreach ($queuedSlug in @($article.queued_slugs)) {
+        foreach ($queuedSlug in $(if ($AllowQueuedLinks) { @() } else { @($article.queued_slugs) })) {
             if (
                 $queuedSlug -and
                 $queuedSlug -ne $targetSlug -and

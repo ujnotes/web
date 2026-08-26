@@ -58,7 +58,8 @@ function Get-UjnotesNativeToolchain {
 function Invoke-UjnotesNativeTiggu {
     param(
         [Parameter(Mandatory)] [string]$ProjectPath,
-        [Parameter(Mandatory)] [string]$WebsiteRoot
+        [Parameter(Mandatory)] [string]$WebsiteRoot,
+        [switch]$SkipScriptVersioning
     )
 
     $bash = Get-UjnotesGitBash
@@ -79,6 +80,7 @@ function Invoke-UjnotesNativeTiggu {
     $command = 'export PATH=/usr/bin:/bin:$PATH; ' +
         'export TIGGU_ORIGIN="http://127.0.0.1:8084"; ' +
         'export TIGGU_HOST_HEADER="ujnotes.local"; ' +
+        $(if ($SkipScriptVersioning) { 'export TIGGU_SKIP_SCRIPT_VERSIONING=1; ' } else { '' }) +
         'export TIGGU_MINIFY="' + $minifyUnix + '"; ' +
         'export TIGGU_CLOSURE_JAR="' + $closureUnix + '"; ' +
         'export TIGGU_JAVA="' + $javaUnix + '"; ' +

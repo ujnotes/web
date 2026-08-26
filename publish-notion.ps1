@@ -890,7 +890,10 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
                 -WorkingDirectory $projectRoot
         }
         else {
-            Invoke-UjnotesNativeTiggu -ProjectPath $stageProject -WebsiteRoot $websiteRoot
+            Invoke-UjnotesNativeTiggu `
+                -ProjectPath $stageProject `
+                -WebsiteRoot $websiteRoot `
+                -SkipScriptVersioning
         }
     }
     finally {

@@ -1038,7 +1038,8 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
 
     if (Enter-Stage 'verify-live') {
     foreach ($builtVariant in $builtVariants) {
-        $localHash = (Get-FileHash -LiteralPath $builtVariant.Json -Algorithm SHA256).Hash
+        $deployedJsonPath = Join-Path $publicRepo ("public\" + $builtVariant.PublicSlug.Replace('/', '\') + "\index.json")
+        $localHash = (Get-FileHash -LiteralPath $deployedJsonPath -Algorithm SHA256).Hash
         $liveJsonPath = Join-Path $workRoot ("live-" + $builtVariant.PublicSlug.Replace('/', '-') + '.json')
         $liveUrl = "$BaseUrl/$($builtVariant.PublicSlug).json"
         $deadline = [DateTime]::UtcNow.AddSeconds($DeployTimeoutSeconds)

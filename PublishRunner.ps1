@@ -77,6 +77,8 @@ function Invoke-UjnotesNativeTiggu {
     $minifyUnix = ConvertTo-UjnotesGitBashPath -Path $toolchain.Minify
     $closureUnix = ConvertTo-UjnotesGitBashPath -Path $toolchain.Closure
     $javaUnix = ConvertTo-UjnotesGitBashPath -Path $toolchain.Java
+    $pythonPath = (Get-Command python -ErrorAction Stop).Source
+    $pythonUnix = ConvertTo-UjnotesGitBashPath -Path $pythonPath
     $command = 'export PATH=/usr/bin:/bin:$PATH; ' +
         'export TIGGU_ORIGIN="http://127.0.0.1:8084"; ' +
         'export TIGGU_HOST_HEADER="ujnotes.local"; ' +
@@ -84,6 +86,7 @@ function Invoke-UjnotesNativeTiggu {
         'export TIGGU_MINIFY="' + $minifyUnix + '"; ' +
         'export TIGGU_CLOSURE_JAR="' + $closureUnix + '"; ' +
         'export TIGGU_JAVA="' + $javaUnix + '"; ' +
+        'export TIGGU_NATIVE_PYTHON="' + $pythonUnix + '"; ' +
         '"' + $tigguUnix + '" "' + $projectUnix + '"'
     Push-Location $WebsiteRoot
     try {

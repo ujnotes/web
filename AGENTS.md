@@ -22,7 +22,7 @@ Follow the workspace conventions in the parent AGENTS file [`../../AGENTS.md`](.
 
 ## Local Notion subtree publishing
 
-- Use `publish-notion-subtree.ps1` for an existing canonical article and its descendant articles. It is the supported path for shared-cover fan-out, one-time canonical queuing, warm-container batch publication, atomic nested translations, and production cover hash verification.
+- Use `publish-notion-subtree.ps1` for an existing canonical article and its descendant articles. It is the supported path for shared-cover fan-out, one-time canonical queuing, configured-runner batch publication, atomic nested translations, and production cover hash verification.
 - Run `-DryRun` when the subtree or source is uncertain. Require the exact supplied source to exist and already contain JPEG data; do not silently substitute or convert a similarly named file.
 - Keep single-route builds genuinely isolated by filtering the canonical ID table and every localized `ID_<lang>.tsv` to the selected slug. Rebuilding all localized routes for every selected row is a publisher bug.
 - Use canonical `/{slug}.json`, `/<lang>/{slug}.json`, and `/{slug}.jpg` verification URLs, with explicit UTF-8 decoding for localized content. Do not verify through deployment-only `/index.*` paths.
@@ -31,8 +31,7 @@ Follow the workspace conventions in the parent AGENTS file [`../../AGENTS.md`](.
 - Covers already on disk: omit `-CoverSource`.
 - Set `[Console]::OutputEncoding` / `$OutputEncoding` to UTF-8 no BOM and `$env:PYTHONUTF8=1` before capturing NCMS Python. OEM CP437 turns Hindi into mojibake and fails the built-JSON description check. `NCMS_RESULT` must use `ensure_ascii=True`; read generated JSON/PHP with `Read-Utf8Text`.
 - Homepage is slug `root` and bakes to `public/index.html`. It is not a Notion-queued article. Do not run `publish-notion.ps1 -Slug root` (that overwrites `Root.php` tree markup). Isolated child publishes do not rebuild homepage tiles.
-- Rebuild the homepage with Tiggu: write a temporary `Config/Render.lsv` containing only `root`, delete stale `public/index.html` first (Tiggu `check()` ignores Resource/Url.tsv cover changes), `docker compose -p ujnotes exec web-site /app/tiggu/build.sh /app/site/project`, copy `public/index.html` into `web-public`, commit, and push. Delete `Render.lsv` afterwards. Do not commit it.
+- Rebuild the homepage with Tiggu: write a temporary `Config/Render.lsv` containing only `root`, delete stale `public/index.html` first (Tiggu `check()` ignores Resource/Url.tsv cover changes), run Tiggu through the renderer selected by `H:\Console\config.yaml` (prefer `runner: native`), copy `public/index.html` into `web-public`, commit, and push. Delete `Render.lsv` afterwards. Do not commit it.
 - Never edit `web-public` / GitHub raw HTML by hand (no search-replace on `build/public/*.html`). Production files are minify output. Always render into `interim`, let Tiggu minify into `public`, then publish that. If a tile or script src is wrong, fix source or rerun Tiggu, then publish.
-
 
 

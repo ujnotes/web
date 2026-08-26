@@ -5,7 +5,7 @@ Publishes an existing Notion article subtree through one guarded local workflow.
 .DESCRIPTION
 Discovers canonical Website database rows at RootSlug and below it, optionally
 copies one JPEG cover to every row, queues only those canonical rows, invokes
-publish-notion.ps1 for each row while reusing one renderer container, and
+publish-notion.ps1 for each row through the configured renderer, and
 verifies every canonical production cover by SHA-256.
 
 Notion body edits (including translated disclaimer text) must be completed
@@ -125,11 +125,16 @@ $componentRoot = Join-Path $SiteProject 'root\HTML\Component'
 $resourceRoot = Join-Path $SiteProject 'root\Resource'
 $publicRepo = Join-Path $scriptRoot 'build'
 $composeFile = Join-Path $scriptRoot 'compose-dev.yaml'
+. (Join-Path $scriptRoot 'PublishRunner.ps1')
+$publishRunner = Get-UjnotesPublishRunner
 
-foreach ($required in @($publisher, $python, $componentRoot, $resourceRoot, $publicRepo, $composeFile)) {
+foreach ($required in @($publisher, $python, $componentRoot, $resourceRoot, $publicRepo)) {
     if (-not (Test-Path -LiteralPath $required)) {
         throw "Required path not found: $required"
     }
+}
+if ($publishRunner -eq 'docker' -and -not (Test-Path -LiteralPath $composeFile)) {
+    throw "Required path not found: $composeFile"
 }
 
 Write-Step 'Preflighting repositories and source image'
@@ -278,22 +283,28 @@ finally {
 }
 
 $webSiteWasRunning = $false
-& docker info --format '{{.ServerVersion}}' *> $null
-if ($LASTEXITCODE -eq 0) {
-    $runningServices = @(& docker compose -f $composeFile -p ujnotes ps --status running --services 2>$null)
-    $webSiteWasRunning = $runningServices -contains 'web-site'
+if ($publishRunner -eq 'docker') {
+    & docker info --format '{{.ServerVersion}}' *> $null
+    if ($LASTEXITCODE -eq 0) {
+        $runningServices = @(& docker compose -f $composeFile -p ujnotes ps --status running --services 2>$null)
+        $webSiteWasRunning = $runningServices -contains 'web-site'
+    }
 }
 
 try {
-    Write-Step 'Publishing the subtree with one warm renderer container'
+    Write-Step "Publishing the subtree with the $publishRunner renderer"
     foreach ($article in $articles) {
         Write-Host "`nPublishing $($article.slug)" -ForegroundColor Yellow
-        & $publisher `
-            -Slug ([string]$article.slug) `
-            -NcmsProject $NcmsProject `
-            -BaseUrl $BaseUrl `
-            -DeployTimeoutSeconds $DeployTimeoutSeconds `
-            -KeepBuildContainer
+        $publisherArguments = @{
+            Slug = [string]$article.slug
+            NcmsProject = $NcmsProject
+            BaseUrl = $BaseUrl
+            DeployTimeoutSeconds = $DeployTimeoutSeconds
+        }
+        if ($publishRunner -eq 'docker') {
+            $publisherArguments.KeepBuildContainer = $true
+        }
+        & $publisher @publisherArguments
         if ($LASTEXITCODE -ne 0) {
             throw "Publisher failed for '$($article.slug)'. Remaining canonical rows stay queued."
         }
@@ -326,7 +337,7 @@ try {
     }
 }
 finally {
-    if (-not $webSiteWasRunning) {
+    if ($publishRunner -eq 'docker' -and -not $webSiteWasRunning) {
         & docker compose -f $composeFile -p ujnotes stop web-site
         if ($LASTEXITCODE -ne 0) {
             Write-Warning 'Could not stop the temporary web-site renderer container.'

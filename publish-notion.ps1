@@ -115,6 +115,7 @@ function Write-Utf8Text {
 }
 
 . (Join-Path $PSScriptRoot 'Repair-GitTextFiles.ps1')
+. (Join-Path $PSScriptRoot 'PublishRunner.ps1')
 
 function Write-LinesPreservingNewline {
     param(
@@ -229,9 +230,20 @@ function Merge-UrlRow {
     $kept = @($lines[0])
     foreach ($line in $lines | Select-Object -Skip 1) {
         $fields = @($line -split "`t")
-        if ($fields.Count -gt 0) {
-            $normalized = $fields[0].Replace('\', '/').TrimEnd('/')
-            if ($normalized -eq $ArticleSlug) {
+        if ($fields.Count -ge 3) {
+            $normalizedPath = $fields[0].Replace('\', '/').Trim('/')
+            $name = $fields[1].Trim('/')
+            $extension = $fields[2].Trim().ToLowerInvariant()
+            $rowSlug = if ($name -eq 'index') {
+                $normalizedPath
+            }
+            elseif ($normalizedPath) {
+                "$normalizedPath/$name"
+            }
+            else {
+                $name
+            }
+            if ($extension -eq 'jpg' -and $rowSlug -eq $ArticleSlug) {
                 continue
             }
         }
@@ -239,7 +251,16 @@ function Merge-UrlRow {
     }
 
     if ($HasCover) {
-        $kept += "$ArticleSlug/`tindex`tjpg"
+        $slash = $ArticleSlug.LastIndexOf('/')
+        if ($slash -ge 0) {
+            $parentPath = $ArticleSlug.Substring(0, $slash + 1)
+            $coverName = $ArticleSlug.Substring($slash + 1)
+        }
+        else {
+            $parentPath = ''
+            $coverName = $ArticleSlug
+        }
+        $kept += "$parentPath`t$coverName`tjpg"
     }
     Write-LinesPreservingNewline -Path $Path -Lines $kept
 }
@@ -443,11 +464,11 @@ $publicRepo = Join-Path $projectRoot 'build'
 $composeFile = Join-Path $projectRoot 'compose-dev.yaml'
 $python = Join-Path $NcmsProject '.venv\Scripts\python.exe'
 $php = 'C:\programs\php\bin\php.exe'
+$publishRunner = Get-UjnotesPublishRunner
 
 foreach ($required in @(
     $siteProject,
     $publicRepo,
-    $composeFile,
     $NcmsProject,
     $python,
     (Join-Path $NcmsProject 'ncms_fetch.py')
@@ -455,6 +476,9 @@ foreach ($required in @(
     if (-not (Test-Path -LiteralPath $required)) {
         throw "Required path not found: $required"
     }
+}
+if ($publishRunner -eq 'docker' -and -not (Test-Path -LiteralPath $composeFile)) {
+    throw "Required path not found: $composeFile"
 }
 
 if ($Slug) {
@@ -519,7 +543,10 @@ if ($Resume) {
     Resume-PublishPipeline -Checkpoint $checkpoint
     $failedId = [string]$checkpoint.failedStage
     $stageIds = @((Get-PublishStageCatalog).Id)
-    if ($stageIds.IndexOf($failedId) -ge $stageIds.IndexOf('start-renderer')) {
+    if (
+        $publishRunner -eq 'docker' -and
+        $stageIds.IndexOf($failedId) -ge $stageIds.IndexOf('start-renderer')
+    ) {
         Wait-Docker
         $runningServices = @(
             & docker compose -f $composeFile -p ujnotes ps --status running --services 2>$null
@@ -792,24 +819,34 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
     }
 
     if (Enter-Stage 'start-renderer') {
-    Wait-Docker
-    $runningServices = @(
-        & docker compose -f $composeFile -p ujnotes ps --status running --services 2>$null
-    )
-    $webSiteWasRunning = $runningServices -contains 'web-site'
-    Write-Step 'Starting the local Cutie renderer'
-    Invoke-Native -FilePath 'docker' `
-        -ArgumentList @('compose', '-f', $composeFile, '-p', 'ujnotes', 'up', '-d', 'web-site') `
-        -WorkingDirectory $projectRoot
-    $containerStarted = $true
+    if ($publishRunner -eq 'docker') {
+        Wait-Docker
+        $runningServices = @(
+            & docker compose -f $composeFile -p ujnotes ps --status running --services 2>$null
+        )
+        $webSiteWasRunning = $runningServices -contains 'web-site'
+        Write-Step 'Starting the local Cutie renderer'
+        Invoke-Native -FilePath 'docker' `
+            -ArgumentList @('compose', '-f', $composeFile, '-p', 'ujnotes', 'up', '-d', 'web-site') `
+            -WorkingDirectory $projectRoot
+        $containerStarted = $true
 
-    Invoke-Native -FilePath 'docker' `
-        -ArgumentList @(
-            'compose', '-f', $composeFile, '-p', 'ujnotes', 'exec', '-T', 'web-site',
-            'sh', '-lc',
-            'command -v wget >/dev/null 2>&1 && command -v minify >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends wget minify)'
-        ) `
-        -WorkingDirectory $projectRoot
+        Invoke-Native -FilePath 'docker' `
+            -ArgumentList @(
+                'compose', '-f', $composeFile, '-p', 'ujnotes', 'exec', '-T', 'web-site',
+                'sh', '-lc',
+                'command -v wget >/dev/null 2>&1 && command -v minify >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends wget minify)'
+            ) `
+            -WorkingDirectory $projectRoot
+    }
+    else {
+        Write-Step 'Using the native Tiggu renderer'
+        [void](Get-UjnotesGitBash)
+        $nativeTiggu = Join-Path $websiteRoot 'tiggu\build.sh'
+        if (-not (Test-Path -LiteralPath $nativeTiggu -PathType Leaf)) {
+            throw "Native runner needs Tiggu at $nativeTiggu."
+        }
+    }
     Complete-Stage 'start-renderer'
     }
 
@@ -833,12 +870,17 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
     $containerStage = "/app/$workName/site"
     try {
         Write-Step 'Rendering the requested route only'
-        Invoke-Native -FilePath 'docker' `
-            -ArgumentList @(
-                'compose', '-f', $composeFile, '-p', 'ujnotes', 'exec', '-T', 'web-site',
-                '/app/tiggu/build.sh', $containerStage
-            ) `
-            -WorkingDirectory $projectRoot
+        if ($publishRunner -eq 'docker') {
+            Invoke-Native -FilePath 'docker' `
+                -ArgumentList @(
+                    'compose', '-f', $composeFile, '-p', 'ujnotes', 'exec', '-T', 'web-site',
+                    '/app/tiggu/build.sh', $containerStage
+                ) `
+                -WorkingDirectory $projectRoot
+        }
+        else {
+            Invoke-UjnotesNativeTiggu -ProjectPath $stageProject -WebsiteRoot $websiteRoot
+        }
     }
     finally {
         Copy-Item -LiteralPath $realIdBackup -Destination $realIdPath -Force

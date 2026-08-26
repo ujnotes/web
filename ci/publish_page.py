@@ -276,12 +276,15 @@ def materialize_staged_cover(stage, slug, cover, flat_fields=None):
     slug = str(slug).replace("\\", "/").strip("/")
     if not slug or cover is None or not cover.is_file():
         return False
+    extension = cover.suffix.lower().lstrip(".") or "jpg"
+    if extension == "jpeg":
+        extension = "jpg"
     staged_index = safe_target(
-        stage, Path("public", *slug.split("/"), "index.jpg")
+        stage, Path("public", *slug.split("/"), f"index.{extension}")
     )
     staged_index.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(cover, staged_index)
-    fields = flat_fields if flat_fields is not None else cover_url_fields(slug)
+    fields = flat_fields if flat_fields is not None else cover_url_fields(slug, extension)
     flat = staged_url_artifact(stage, fields)
     if flat is not None:
         flat.parent.mkdir(parents=True, exist_ok=True)
@@ -522,15 +525,18 @@ def append_url_row_line(path, row):
 COVER_EXTENSIONS = frozenset({"jpg", "jpeg", "png", "webp"})
 
 
-def cover_url_fields(slug):
-    """Return Url.tsv fields that Tiggu resolves to /{slug}.jpg."""
+def cover_url_fields(slug, extension="jpg"):
+    """Return Url.tsv fields that Tiggu resolves to /{slug}.jpg|.svg."""
     slug = str(slug).replace("\\", "/").strip("/")
+    extension = str(extension or "jpg").lower().lstrip(".")
+    if extension == "jpeg":
+        extension = "jpg"
     if not slug:
         raise ValueError("cover slug required")
     if "/" in slug:
         parent, name = slug.rsplit("/", 1)
-        return [f"{parent}/", name, "jpg"]
-    return ["", slug, "jpg"]
+        return [f"{parent}/", name, extension]
+    return ["", slug, extension]
 
 
 def is_article_cover_row(fields):
@@ -570,13 +576,13 @@ def normalize_url_row(fields, language="en"):
         slug = path.strip("/")
         if language != "en" and slug and not slug.startswith(f"{language}/"):
             slug = f"{language}/{slug}"
-        return cover_url_fields(slug)
+        return cover_url_fields(slug, extension_l)
 
     if language != "en" and name and extension_l in COVER_EXTENSIONS:
         slug = f"{path.strip('/')}/{name}" if path.strip("/") else name
         if not slug.startswith(f"{language}/"):
             slug = f"{language}/{slug}"
-        return cover_url_fields(slug)
+        return cover_url_fields(slug, extension_l)
 
     if (
         name
@@ -1387,7 +1393,7 @@ def create_stage(args):
     write_lines(default_url, url_lines)
 
 
-def merge_firebase(path, slug, has_cover, add_shortcut=True):
+def merge_firebase(path, slug, has_cover, add_shortcut=True, has_svg=False):
     path = Path(path)
     with path.open(encoding="utf-8") as source:
         data = json.load(source)
@@ -1415,6 +1421,10 @@ def merge_firebase(path, slug, has_cover, add_shortcut=True):
     if has_cover:
         required.append(
             {"source": f"/{slug}.jpg", "destination": f"/{slug}/index.jpg"}
+        )
+    if has_svg:
+        required.append(
+            {"source": f"/{slug}.svg", "destination": f"/{slug}/index.svg"}
         )
     for wanted in required:
         existing = next(
@@ -1512,6 +1522,32 @@ def public_html_exists(root, slug):
         path.is_file()
         for path in (root / relative / "index.html", root / f"{relative}.html")
     )
+
+
+def copy_slug_index_asset(stage, public_repo, slug, extension, source_file=None):
+    """Copy public/<slug>/index.{ext} from the stage, or a Resource fallback."""
+    relative = Path("public", *str(slug).split("/"), f"index.{extension}")
+    origin = None
+    stage_index = safe_target(stage, relative)
+    if stage_index.is_file() and stage_index.stat().st_size > 0:
+        origin = stage_index
+    elif source_file is not None:
+        candidate = Path(source_file)
+        source_ext = candidate.suffix.lower().lstrip(".")
+        if source_ext == "jpeg":
+            source_ext = "jpg"
+        if (
+            source_ext == extension
+            and candidate.is_file()
+            and candidate.stat().st_size > 0
+        ):
+            origin = candidate
+    if origin is None:
+        return None
+    public_index = safe_target(public_repo, relative)
+    public_index.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(origin, public_index)
+    return public_index
 
 
 def rendered_asset_paths(html_path):
@@ -1674,55 +1710,52 @@ def publish_artifacts(args):
     firebase_path = public_repo / "firebase.json"
     public_sitemap = public_repo / "public" / "sitemap.xml"
 
+    source_cover = None
+    if metadata.get("source_cover"):
+        source_cover = safe_target(stage, metadata["source_cover"])
+
+    def publish_index_assets(artifact_slug, require_cover=False):
+        published_jpg = copy_slug_index_asset(
+            stage, public_repo, artifact_slug, "jpg", source_cover
+        )
+        published_svg = copy_slug_index_asset(
+            stage, public_repo, artifact_slug, "svg", source_cover
+        )
+        if published_jpg is not None:
+            public_paths.append(published_jpg.relative_to(public_repo).as_posix())
+        if published_svg is not None:
+            public_paths.append(published_svg.relative_to(public_repo).as_posix())
+        if require_cover and published_jpg is None and published_svg is None:
+            raise RuntimeError(
+                f"Expected cover artifact is missing: public/{artifact_slug}/index.jpg"
+            )
+        return published_jpg is not None, published_svg is not None
+
     if render_all:
         for artifact_slug in dict.fromkeys(artifact_slugs):
-            stage_jpg = safe_target(
-                stage, Path("public", *artifact_slug.split("/"), "index.jpg")
-            )
-            has_cover = stage_jpg.is_file() and stage_jpg.stat().st_size > 0
-            if has_cover:
-                public_jpg = safe_target(
-                    public_repo,
-                    Path("public", *artifact_slug.split("/"), "index.jpg"),
-                )
-                public_jpg.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(stage_jpg, public_jpg)
-                public_paths.append(public_jpg.relative_to(public_repo).as_posix())
+            has_cover, has_svg = publish_index_assets(artifact_slug)
             merge_firebase(
                 firebase_path,
                 artifact_slug,
                 has_cover,
                 add_shortcut=artifact_slug in english_slugs,
+                has_svg=has_svg,
             )
             add_sitemap_url(
                 public_sitemap, sitemap_page_url(args.base_url, artifact_slug)
             )
     else:
-        if metadata["has_cover"]:
-            for variant in variants:
-                public_slug = variant["public_slug"]
-                stage_jpg = safe_target(
-                    stage, Path("public", *public_slug.split("/"), "index.jpg")
-                )
-                if not stage_jpg.is_file() or stage_jpg.stat().st_size == 0:
-                    raise RuntimeError(
-                        f"Expected cover artifact is missing: {stage_jpg}"
-                    )
-                public_jpg = safe_target(
-                    public_repo,
-                    Path("public", *public_slug.split("/"), "index.jpg"),
-                )
-                public_jpg.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(stage_jpg, public_jpg)
-                public_paths.append(public_jpg.relative_to(public_repo).as_posix())
-
         for variant in variants:
             public_slug = variant["public_slug"]
+            has_cover, has_svg = publish_index_assets(
+                public_slug, require_cover=metadata["has_cover"]
+            )
             merge_firebase(
                 firebase_path,
                 public_slug,
-                metadata["has_cover"],
+                has_cover or metadata["has_cover"],
                 add_shortcut=variant["language"] == "en",
+                has_svg=has_svg,
             )
             add_sitemap_url(
                 public_sitemap, sitemap_page_url(args.base_url, public_slug)

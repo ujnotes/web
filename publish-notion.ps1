@@ -313,15 +313,17 @@ function Update-FirebaseConfig {
         [Parameter(Mandatory)] [string]$PythonWorkingDirectory,
         [Parameter(Mandatory)] [string]$Path,
         [Parameter(Mandatory)] [string]$ArticleSlug,
-        [Parameter(Mandatory)] [bool]$HasCover
+        [Parameter(Mandatory)] [bool]$HasCover,
+        [bool]$HasSvg = $false
     )
 
     $code = @'
 import json
 import sys
 
-path, slug, has_cover_text = sys.argv[1:4]
+path, slug, has_cover_text, has_svg_text = sys.argv[1:5]
 has_cover = has_cover_text == "1"
+has_svg = has_svg_text == "1"
 
 with open(path, encoding="utf-8") as source:
     data = json.load(source)
@@ -346,6 +348,8 @@ required = [
 ]
 if has_cover:
     required.append({"source": f"/{slug}.jpg", "destination": f"/{slug}/index.jpg"})
+if has_svg:
+    required.append({"source": f"/{slug}.svg", "destination": f"/{slug}/index.svg"})
 
 for wanted in required:
     existing = next((item for item in rewrites if item.get("source") == wanted["source"]), None)
@@ -362,7 +366,7 @@ with open(path, "w", encoding="utf-8", newline="\n") as target:
 '@
 
     Invoke-Native -FilePath $Python `
-        -ArgumentList @('-X', 'utf8', '-c', $code, $Path, $ArticleSlug, $(if ($HasCover) { '1' } else { '0' })) `
+        -ArgumentList @('-X', 'utf8', '-c', $code, $Path, $ArticleSlug, $(if ($HasCover) { '1' } else { '0' }), $(if ($HasSvg) { '1' } else { '0' })) `
         -WorkingDirectory $PythonWorkingDirectory
 }
 
@@ -962,20 +966,30 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
 
     $publicTarget = Join-Path $publicRepo "public\$slugPath"
     $stagePublicTarget = Join-Path $stageProject "public\$slugPath"
-    $stageFlatJpg = "$stagePublicTarget.jpg"
-    $stageIndexJpg = Join-Path $stagePublicTarget 'index.jpg'
-    $stageJpg = @($stageFlatJpg, $stageIndexJpg) |
-        Where-Object { (Test-Path -LiteralPath $_) -and (Get-Item -LiteralPath $_).Length -gt 0 } |
-        Select-Object -First 1
-    $hasPublishedCover = -not [string]::IsNullOrWhiteSpace($stageJpg)
-    if ($hasPublishedCover) {
-        Copy-Item -LiteralPath $stageJpg -Destination (Join-Path $publicTarget 'index.jpg') -Force
+    $resourceRoot = Join-Path $siteProject ("root\Resource\" + $slugPath)
+    $publishedAssets = @{}
+    foreach ($extension in @('jpg', 'svg')) {
+        $candidates = @(
+            "$stagePublicTarget.$extension"
+            (Join-Path $stagePublicTarget "index.$extension")
+            "$resourceRoot.$extension"
+            (Join-Path $resourceRoot "index.$extension")
+        )
+        $sourceAsset = @($candidates) |
+            Where-Object { (Test-Path -LiteralPath $_) -and (Get-Item -LiteralPath $_).Length -gt 0 } |
+            Select-Object -First 1
+        if (-not [string]::IsNullOrWhiteSpace($sourceAsset)) {
+            Copy-Item -LiteralPath $sourceAsset -Destination (Join-Path $publicTarget "index.$extension") -Force
+            $publishedAssets[$extension] = $true
+        }
     }
+    $hasPublishedCover = $publishedAssets.ContainsKey('jpg')
+    $hasPublishedSvg = $publishedAssets.ContainsKey('svg')
 
     $legacyParent = Split-Path -Parent $publicTarget
     $legacyStem = Split-Path -Leaf $publicTarget
     $legacyGitPaths = @()
-    foreach ($extension in @('html', 'json', 'jpg')) {
+    foreach ($extension in @('html', 'json', 'jpg', 'svg')) {
         $legacyPath = Join-Path $legacyParent "$legacyStem.$extension"
         if (Test-Path -LiteralPath $legacyPath) {
             Remove-Item -LiteralPath $legacyPath -Force
@@ -996,7 +1010,8 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
         -PythonWorkingDirectory $NcmsProject `
         -Path $firebasePath `
         -ArticleSlug $targetSlug `
-        -HasCover $hasPublishedCover
+        -HasCover $hasPublishedCover `
+        -HasSvg $hasPublishedSvg
 
     $sitemapPath = Join-Path $publicRepo 'public\sitemap.xml'
     Add-SitemapUrl -Path $sitemapPath -Url "$BaseUrl/$targetSlug"
@@ -1014,6 +1029,9 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
     }
     if ($hasPublishedCover -and (Test-Path -LiteralPath (Join-Path $publicTarget 'index.jpg'))) {
         $gitPaths += "public/$targetSlug/index.jpg"
+    }
+    if ($hasPublishedSvg -and (Test-Path -LiteralPath (Join-Path $publicTarget 'index.svg'))) {
+        $gitPaths += "public/$targetSlug/index.svg"
     }
     $gitPaths += $legacyGitPaths
     foreach ($gitPath in $gitPaths) {

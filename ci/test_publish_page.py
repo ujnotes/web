@@ -1998,6 +1998,22 @@ class PublicationMergeTests(unittest.TestCase):
                 hosting["rewrites"],
             )
 
+    def test_merge_firebase_adds_svg_rewrite(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            firebase = Path(temp_dir) / "firebase.json"
+            write(firebase, json.dumps({"hosting": {"rewrites": []}}))
+            publish_page.merge_firebase(
+                firebase, "world/example", has_cover=False, has_svg=True
+            )
+            hosting = json.loads(firebase.read_text(encoding="utf-8"))["hosting"]
+            self.assertIn(
+                {
+                    "source": "/world/example.svg",
+                    "destination": "/world/example/index.svg",
+                },
+                hosting["rewrites"],
+            )
+
     def test_root_firebase_json_uses_flat_public_artifact(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             firebase = Path(temp_dir) / "firebase.json"

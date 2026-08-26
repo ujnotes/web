@@ -962,9 +962,14 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
 
     $publicTarget = Join-Path $publicRepo "public\$slugPath"
     $stagePublicTarget = Join-Path $stageProject "public\$slugPath"
-    $stageJpg = Join-Path $stagePublicTarget 'index.jpg'
-    if ($hasCover -and (Test-Path -LiteralPath $stageJpg) -and (Get-Item -LiteralPath $stageJpg).Length -gt 0) {
-        Copy-Item -LiteralPath $stageJpg -Destination $publicTarget -Force
+    $stageFlatJpg = "$stagePublicTarget.jpg"
+    $stageIndexJpg = Join-Path $stagePublicTarget 'index.jpg'
+    $stageJpg = @($stageFlatJpg, $stageIndexJpg) |
+        Where-Object { (Test-Path -LiteralPath $_) -and (Get-Item -LiteralPath $_).Length -gt 0 } |
+        Select-Object -First 1
+    $hasPublishedCover = -not [string]::IsNullOrWhiteSpace($stageJpg)
+    if ($hasPublishedCover) {
+        Copy-Item -LiteralPath $stageJpg -Destination (Join-Path $publicTarget 'index.jpg') -Force
     }
 
     $legacyParent = Split-Path -Parent $publicTarget
@@ -991,7 +996,7 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
         -PythonWorkingDirectory $NcmsProject `
         -Path $firebasePath `
         -ArticleSlug $targetSlug `
-        -HasCover $hasCover
+        -HasCover $hasPublishedCover
 
     $sitemapPath = Join-Path $publicRepo 'public\sitemap.xml'
     Add-SitemapUrl -Path $sitemapPath -Url "$BaseUrl/$targetSlug"
@@ -1007,7 +1012,7 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
         $gitPaths += "public/$($builtVariant.PublicSlug)/index.html"
         $gitPaths += "public/$($builtVariant.PublicSlug)/index.json"
     }
-    if ($hasCover -and (Test-Path -LiteralPath (Join-Path $publicTarget 'index.jpg'))) {
+    if ($hasPublishedCover -and (Test-Path -LiteralPath (Join-Path $publicTarget 'index.jpg'))) {
         $gitPaths += "public/$targetSlug/index.jpg"
     }
     $gitPaths += $legacyGitPaths

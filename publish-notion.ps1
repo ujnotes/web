@@ -363,16 +363,23 @@ hosting = data.setdefault("hosting", {})
 redirects = hosting.setdefault("redirects", [])
 rewrites = hosting.setdefault("rewrites", [])
 
+# Identity redirects loop in Firebase (for example /computer -> /computer).
+hosting["redirects"] = [
+    item for item in redirects if item.get("source") != item.get("destination")
+]
+redirects = hosting["redirects"]
+
 short_source = "/" + slug.rsplit("/", 1)[-1]
 destination = "/" + slug
-existing_short = next((item for item in redirects if item.get("source") == short_source), None)
-if existing_short and existing_short.get("destination") != destination:
-    print(
-        f"WARNING: Skipping shortcut {short_source!r}; already points to {existing_short.get('destination')!r}",
-        file=sys.stderr,
-    )
-elif not existing_short:
-    redirects.append({"source": short_source, "destination": destination, "type": 301})
+if short_source != destination:
+    existing_short = next((item for item in redirects if item.get("source") == short_source), None)
+    if existing_short and existing_short.get("destination") != destination:
+        print(
+            f"WARNING: Skipping shortcut {short_source!r}; already points to {existing_short.get('destination')!r}",
+            file=sys.stderr,
+        )
+    elif not existing_short:
+        redirects.append({"source": short_source, "destination": destination, "type": 301})
 
 required = [
     {"source": f"/{slug}.json", "destination": f"/{slug}/index.json"},

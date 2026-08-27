@@ -824,6 +824,36 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
     $stageUrlPath = Join-Path $stageProject 'Config\Url.tsv'
     $stageUrlLines = @([System.IO.File]::ReadAllLines($stageUrlPath))
     $stageUrlText = $stageUrlLines[0] + "`n"
+    $keptUrlKeys = @{}
+    foreach ($urlLine in $stageUrlLines | Select-Object -Skip 1) {
+        $fields = @($urlLine -split "`t")
+        if ($fields.Count -lt 3) {
+            continue
+        }
+        $normalizedPath = $fields[0].Replace('\', '/').Trim('/')
+        $assetName = $fields[1].Trim('/')
+        $extension = $fields[2].Trim().ToLowerInvariant()
+        $rowSlug = if ($assetName -eq 'index') {
+            $normalizedPath
+        }
+        elseif ($normalizedPath) {
+            "$normalizedPath/$assetName"
+        }
+        else {
+            $assetName
+        }
+        $isCoverRow = ($extension -in @('jpg', 'jpeg')) -and ($rowSlug -eq $targetSlug)
+        $isInlineRow = $normalizedPath -eq $targetSlug
+        if (-not ($isCoverRow -or $isInlineRow)) {
+            continue
+        }
+        $rowKey = "$normalizedPath|$assetName|$extension"
+        if ($keptUrlKeys.ContainsKey($rowKey)) {
+            continue
+        }
+        $keptUrlKeys[$rowKey] = $true
+        $stageUrlText += "$($fields[0])`t$assetName`t$($fields[2])`n"
+    }
     if ($hasCover) {
         $coverSlash = $targetSlug.LastIndexOf('/')
         if ($coverSlash -ge 0) {
@@ -834,7 +864,10 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
             $stageCoverPath = ''
             $stageCoverName = $targetSlug
         }
-        $stageUrlText += "$stageCoverPath`t$stageCoverName`tjpg`n"
+        $coverKey = "$($stageCoverPath.Trim('/'))|$stageCoverName|jpg"
+        if (-not $keptUrlKeys.ContainsKey($coverKey)) {
+            $stageUrlText += "$stageCoverPath`t$stageCoverName`tjpg`n"
+        }
     }
     Write-Utf8Text -Path $stageUrlPath -Text $stageUrlText
     Complete-Stage 'create-stage'
@@ -1032,6 +1065,14 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
     }
     if ($hasPublishedSvg -and (Test-Path -LiteralPath (Join-Path $publicTarget 'index.svg'))) {
         $gitPaths += "public/$targetSlug/index.svg"
+    }
+    if (Test-Path -LiteralPath $stagePublicTarget) {
+        Get-ChildItem -LiteralPath $stagePublicTarget -File |
+            Where-Object { $_.Name -notmatch '^(?i)index\.(html|json|jpg|jpeg|svg)$' } |
+            ForEach-Object {
+                Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $publicTarget $_.Name) -Force
+                $gitPaths += "public/$targetSlug/$($_.Name)"
+            }
     }
     $gitPaths += $legacyGitPaths
     foreach ($gitPath in $gitPaths) {

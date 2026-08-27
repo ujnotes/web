@@ -192,6 +192,37 @@ function Merge-IdRow {
     Write-LinesPreservingNewline -Path $Path -Lines @($updated)
 }
 
+function Remove-ShadowingFlatArtifacts {
+    param(
+        [Parameter(Mandatory)] [string]$PublicRepo,
+        [Parameter(Mandatory)] [string]$PublicRoot
+    )
+
+    $removed = [System.Collections.Generic.List[string]]::new()
+    if (-not (Test-Path -LiteralPath $PublicRoot)) {
+        return @()
+    }
+
+    $skipNames = @('index.html', 'index.json', 'manifest.json', 'sitemap.xml')
+    Get-ChildItem -LiteralPath $PublicRoot -Recurse -File |
+        Where-Object {
+            $_.Extension -in @('.html', '.json') -and
+            $skipNames -notcontains $_.Name
+        } |
+        ForEach-Object {
+            $indexArtifact = Join-Path (Join-Path $_.DirectoryName $_.BaseName) ("index" + $_.Extension)
+            if (-not (Test-Path -LiteralPath $indexArtifact)) {
+                return
+            }
+            Remove-Item -LiteralPath $_.FullName -Force
+            $relative = $_.FullName.Substring($PublicRepo.Length).TrimStart('\', '/').Replace('\', '/')
+            $removed.Add($relative)
+            Write-Host "Removed shadowing $($_.Extension.TrimStart('.')) $relative"
+        }
+
+    return @($removed)
+}
+
 function Set-IdStatus {
     param(
         [Parameter(Mandatory)] [string]$Path,
@@ -1036,6 +1067,12 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
             $legacyGitPaths += "public/$legacyPrefix$legacyStem.$extension"
         }
     }
+
+    $legacyGitPaths += @(
+        Remove-ShadowingFlatArtifacts `
+            -PublicRepo $publicRepo `
+            -PublicRoot (Join-Path $publicRepo 'public')
+    )
 
     $firebasePath = Join-Path $publicRepo 'firebase.json'
     Update-FirebaseConfig `

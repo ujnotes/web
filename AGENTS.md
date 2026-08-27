@@ -25,7 +25,9 @@ Follow the workspace conventions in the parent AGENTS file [`../../AGENTS.md`](.
 - Use `publish-notion-subtree.ps1` for an existing canonical article and its descendant articles. It is the supported path for shared-cover fan-out, one-time canonical queuing, configured-runner batch publication, atomic nested translations, and production cover hash verification.
 - Run `-DryRun` when the subtree or source is uncertain. Require the exact supplied source to exist and already contain JPEG data; do not silently substitute or convert a similarly named file.
 - Keep single-route builds genuinely isolated by filtering the canonical ID table and every localized `ID_<lang>.tsv` to the selected slug. Rebuilding all localized routes for every selected row is a publisher bug.
-- Use canonical `/{slug}.json`, `/<lang>/{slug}.json`, and `/{slug}.jpg` verification URLs, with explicit UTF-8 decoding for localized content. Do not verify through deployment-only `/index.*` paths.
+- Use canonical `/{slug}.json`, `/<lang>/{slug}.json`, and `/{slug}.jpg` verification URLs, with explicit UTF-8 decoding for localized content. XURL AJAX uses `/{slug}.json`; HTML-only publishes leave in-app navigation stale. Do not verify through deployment-only `/index.*` paths.
+- Obsolete flat `public/{slug}.json` or `.html` beside `{slug}/index.*` shadows Firebase rewrites. The publisher must delete those flats (`Remove-ShadowingFlatArtifacts`) and stage the deletions.
+- Localized `ID_<lang>.tsv` descriptions must match Notion metadata exactly.
 - Invoke as `& .\publish-notion-subtree.ps1 -RootSlug <slug>` from this directory. Do not wrap in `powershell.exe -File`; that breaks the embedded Python `-c` snippets.
 - An isolated child publish does not rebuild parent listing HTML. Republish the listing slug to refresh child tiles (placeholder.svg on `/computer/game` while `/computer/game/doom` is already correct).
 - Covers already on disk: omit `-CoverSource`.

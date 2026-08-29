@@ -29,7 +29,7 @@ param(
     [Parameter(Position = 0)]
     [string]$Slug,
 
-    [string]$NcmsProject = 'D:\Projects\Cutie\Sample\ncms\project',
+    [string]$NcmsProject = 'H:\Website\ncms',
 
     [string]$BaseUrl = 'https://ujnotes.com',
 
@@ -806,6 +806,13 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
         $realVariantComponent = Join-Path $siteProject ("root\" + $variantComponentRelative)
         New-Item -ItemType Directory -Path (Split-Path -Parent $realVariantComponent) -Force | Out-Null
         Copy-Item -LiteralPath $renderVariantComponent -Destination $realVariantComponent -Force
+        Invoke-Native -FilePath $python `
+            -ArgumentList @(
+                '-X', 'utf8',
+                (Join-Path $projectRoot 'Protect-TimelineDates.py'),
+                $realVariantComponent
+            ) `
+            -WorkingDirectory $projectRoot
 
         $componentText = Read-Utf8Text -Path $realVariantComponent
         if ((Test-Path -LiteralPath $coverSource) -and -not $componentText.Contains('Component_cover.php')) {

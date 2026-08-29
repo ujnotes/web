@@ -29,7 +29,7 @@ param(
 
     [string]$CoverSource,
 
-    [string]$NcmsProject = 'D:\Projects\Cutie\Sample\ncms\project',
+    [string]$NcmsProject = 'H:\Website\ncms',
 
     [string]$SiteProject = 'H:\Website\site\project',
 

@@ -199,11 +199,24 @@ function Merge-IdRow {
     $headerFields = @($lines[0] -split "`t")
     $typeIndex = [Array]::IndexOf($headerFields, 'Type')
     if ($typeIndex -ge 0) {
+        $existingType = $null
+        foreach ($line in $lines) {
+            $fields = @($line -split "`t")
+            if ($fields.Count -gt $typeIndex -and $fields[1] -eq $ArticleSlug) {
+                $existingType = $fields[$typeIndex]
+                break
+            }
+        }
         $articleFields = @($ArticleRow -split "`t")
         while ($articleFields.Count -lt $headerFields.Count) {
             $articleFields += ''
         }
-        $articleFields[$typeIndex] = 'article'
+        if ($existingType) {
+            $articleFields[$typeIndex] = $existingType
+        }
+        else {
+            $articleFields[$typeIndex] = 'article'
+        }
         $ArticleRow = $articleFields -join "`t"
     }
 

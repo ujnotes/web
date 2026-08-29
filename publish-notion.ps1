@@ -679,7 +679,9 @@ import ncms_fetch as ncms
 output_dir = os.path.abspath(sys.argv[1])
 requested = sys.argv[2].strip() if len(sys.argv) > 2 else ""
 
-pages = ncms.fetch_database_content(ncms.database_id, status="publish")
+pages = ncms.resolve_publish_pages(
+    ncms.database_id, status="publish", requested_slug=requested or None
+)
 selected, candidates, requested_language = ncms.select_publish_page(
     pages, requested or None
 )

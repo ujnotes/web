@@ -2,6 +2,10 @@
 
 Follow the workspace conventions in the parent AGENTS file [`../../AGENTS.md`](../../AGENTS.md) (`H:\AGENTS.md`).
 
+## Capture new learnings
+
+When something new is learned, persist it: update a dedicated skill under `H:\Website\.cursor\skills\` (and the tracked copy in `.cursor/skills/` in this repo for publish-pipeline skills) or add a short rule here / in `H:\AGENTS.md`. Do not leave the lesson only in chat.
+
 ## Git commits
 
 - When a task is completed, show the proposed commit message, then create the commit.
@@ -26,7 +30,9 @@ Follow the workspace conventions in the parent AGENTS file [`../../AGENTS.md`](.
 - Run `-DryRun` when the subtree or source is uncertain. Require the exact supplied source to exist and already contain JPEG data; do not silently substitute or convert a similarly named file.
 - Keep single-route builds genuinely isolated by filtering the canonical ID table and every localized `ID_<lang>.tsv` to the selected slug. Rebuilding all localized routes for every selected row is a publisher bug.
 - Use canonical `/{slug}.json`, `/<lang>/{slug}.json`, and `/{slug}.jpg` verification URLs, with explicit UTF-8 decoding for localized content. XURL AJAX uses `/{slug}.json`; HTML-only publishes leave in-app navigation stale. Do not verify through deployment-only `/index.*` paths.
-- Obsolete flat `public/{slug}.json` or `.html` beside `{slug}/index.*` shadows Firebase rewrites. The publisher must delete those flats (`Remove-ShadowingFlatArtifacts`) and stage the deletions.
+- Obsolete flat `public/{slug}.json` or `.html` beside `{slug}/index.*` shadows Firebase rewrites. Isolated Tiggu may emit only those flats; `Resolve-StagedPageArtifacts` must install `{slug}/index.*` first, then `Remove-ShadowingFlatArtifacts` must delete the flats.
+- Default `-NcmsProject` is `H:\Website\ncms`. Console republish does not override it. After copying each rendered PHP variant, run `Protect-TimelineDates.py` so Timeline `<span class='date'>` columns survive NCMS overwrite.
+- When merging `Config/ID.tsv`, preserve an existing Type. Do not force `article` on pages such as Timeline.
 - Localized `ID_<lang>.tsv` descriptions must match Notion metadata exactly.
 - Invoke as `& .\publish-notion-subtree.ps1 -RootSlug <slug>` from this directory. Do not wrap in `powershell.exe -File`; that breaks the embedded Python `-c` snippets.
 - An isolated child publish does not rebuild parent listing HTML. Republish the listing slug to refresh child tiles (placeholder.svg on `/computer/game` while `/computer/game/doom` is already correct).

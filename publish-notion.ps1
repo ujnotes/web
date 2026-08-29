@@ -103,6 +103,39 @@ function Read-Utf8Text {
     )
 }
 
+function Test-NonEmptyFile {
+    param([Parameter(Mandatory)] [string]$Path)
+    return (Test-Path -LiteralPath $Path) -and ((Get-Item -LiteralPath $Path).Length -gt 0)
+}
+
+function Resolve-StagedPageArtifacts {
+    param(
+        [Parameter(Mandatory)] [string]$StagePublicRoot,
+        [Parameter(Mandatory)] [string]$PublicSlug
+    )
+
+    $relative = $PublicSlug.Replace('/', '\')
+    $indexHtml = Join-Path $StagePublicRoot "$relative\index.html"
+    $indexJson = Join-Path $StagePublicRoot "$relative\index.json"
+    $flatHtml = Join-Path $StagePublicRoot ($relative + '.html')
+    $flatJson = Join-Path $StagePublicRoot ($relative + '.json')
+
+    $html = if (Test-NonEmptyFile $indexHtml) { $indexHtml } elseif (Test-NonEmptyFile $flatHtml) { $flatHtml } else { $null }
+    $json = if (Test-NonEmptyFile $indexJson) { $indexJson } elseif (Test-NonEmptyFile $flatJson) { $flatJson } else { $null }
+
+    if (-not $html) {
+        throw "Required build artifact is missing or empty: $indexHtml (also looked for $flatHtml)"
+    }
+    if (-not $json) {
+        throw "Required build artifact is missing or empty: $indexJson (also looked for $flatJson)"
+    }
+
+    return [pscustomobject]@{
+        Html = $html
+        Json = $json
+    }
+}
+
 function Write-Utf8Text {
     param(
         [Parameter(Mandatory)] [string]$Path,
@@ -995,15 +1028,12 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
         else {
             "$([string]$variant.language)/$targetSlug"
         }
-        $variantPublicPath = $variantPublicSlug.Replace('/', '\')
-        $stageVariantTarget = Join-Path $stageProject "public\$variantPublicPath"
-        $stageVariantHtml = Join-Path $stageVariantTarget 'index.html'
-        $stageVariantJson = Join-Path $stageVariantTarget 'index.json'
-        foreach ($artifact in @($stageVariantHtml, $stageVariantJson)) {
-            if (-not (Test-Path -LiteralPath $artifact) -or (Get-Item -LiteralPath $artifact).Length -eq 0) {
-                throw "Required build artifact is missing or empty: $artifact"
-            }
-        }
+        $stagePublicRoot = Join-Path $stageProject 'public'
+        $stagedArtifacts = Resolve-StagedPageArtifacts `
+            -StagePublicRoot $stagePublicRoot `
+            -PublicSlug $variantPublicSlug
+        $stageVariantHtml = [string]$stagedArtifacts.Html
+        $stageVariantJson = [string]$stagedArtifacts.Json
         $builtJson = (Read-Utf8Text -Path $stageVariantJson) | ConvertFrom-Json
         if ([string]$builtJson.desc -ne [string]$variant.description) {
             throw "Built JSON description does not match Notion for '$variantPublicSlug'."
@@ -1032,7 +1062,8 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
     foreach ($builtVariant in $builtVariants) {
         $publicTarget = Join-Path $publicRepo ("public\" + $builtVariant.PublicSlug.Replace('/', '\'))
         New-Item -ItemType Directory -Path $publicTarget -Force | Out-Null
-        Copy-Item -LiteralPath $builtVariant.Html, $builtVariant.Json -Destination $publicTarget -Force
+        Copy-Item -LiteralPath $builtVariant.Html -Destination (Join-Path $publicTarget 'index.html') -Force
+        Copy-Item -LiteralPath $builtVariant.Json -Destination (Join-Path $publicTarget 'index.json') -Force
     }
 
     $publicTarget = Join-Path $publicRepo "public\$slugPath"

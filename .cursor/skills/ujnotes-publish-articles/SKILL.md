@@ -57,7 +57,7 @@ Do not run `publish-notion.ps1 -Slug root`. Rebuild the homepage with Tiggu and 
 
 - Clean `web-site` (`H:\Website\site\project`) and `web-public` (`H:\Website\project\build`) before a subtree publish.
 - Localized `Config/ID_<lang>.tsv` descriptions must match Notion exactly. A trailing `।` in Hindi that Notion does not have fails "Built JSON description does not match Notion".
-- Filter `ID.tsv` and every `ID_<lang>.tsv` to the selected slug for an isolated build.
+- Filter `ID.tsv`, every `ID_<lang>.tsv`, and `Translations.tsv` to the selected slug for an isolated build.
 
 ## After deploy
 

@@ -1,10 +1,10 @@
 # Agent instructions
 
-Follow the workspace conventions in the parent AGENTS file [`../../AGENTS.md`](../../AGENTS.md) (`H:\AGENTS.md`).
+Follow the workspace conventions in the parent AGENTS file [`../../AGENTS.md`](../../AGENTS.md) (`D:\Ujnotes\AGENTS.md`).
 
 ## Capture new learnings
 
-When something new is learned, persist it: update a dedicated skill under `H:\Website\.cursor\skills\` (and the tracked copy in `.cursor/skills/` in this repo for publish-pipeline skills) or add a short rule here / in `H:\AGENTS.md`. Do not leave the lesson only in chat.
+When something new is learned, persist it: update a dedicated skill under `D:\Ujnotes\Website\.cursor\skills\` (and the tracked copy in `.cursor/skills/` in this repo for publish-pipeline skills) or add a short rule here / in `D:\Ujnotes\AGENTS.md`. Do not leave the lesson only in chat.
 
 ## Git commits
 
@@ -31,7 +31,7 @@ When something new is learned, persist it: update a dedicated skill under `H:\We
 - Keep single-route builds genuinely isolated by filtering the canonical ID table and every localized `ID_<lang>.tsv` to the selected slug. Rebuilding all localized routes for every selected row is a publisher bug.
 - Use canonical `/{slug}.json`, `/<lang>/{slug}.json`, and `/{slug}.jpg` verification URLs, with explicit UTF-8 decoding for localized content. XURL AJAX uses `/{slug}.json`; HTML-only publishes leave in-app navigation stale. Do not verify through deployment-only `/index.*` paths.
 - Obsolete flat `public/{slug}.json` or `.html` beside `{slug}/index.*` shadows Firebase rewrites. Isolated Tiggu may emit only those flats; `Resolve-StagedPageArtifacts` must install `{slug}/index.*` first, then `Remove-ShadowingFlatArtifacts` must delete the flats.
-- Default `-NcmsProject` is `H:\Website\ncms`. Console republish does not override it. After copying each rendered PHP variant, run `Protect-TimelineDates.py` so Timeline `<span class='date'>` columns survive NCMS overwrite.
+- Default `-NcmsProject` is `D:\Ujnotes\Website\ncms`. After copying each rendered PHP variant, run `Protect-TimelineDates.py` so Timeline `<span class='date'>` columns survive NCMS overwrite. Missing `Component_image.php` files must fall back to `/resource/placeholder.svg` so PHP 8.4 cannot leak HTML into `/{slug}.json`.
 - When merging `Config/ID.tsv`, preserve an existing Type. Do not force `article` on pages such as Timeline.
 - Localized `ID_<lang>.tsv` descriptions must match Notion metadata exactly.
 - Invoke as `& .\publish-notion-subtree.ps1 -RootSlug <slug>` from this directory. Do not wrap in `powershell.exe -File`; that breaks the embedded Python `-c` snippets.
@@ -39,8 +39,11 @@ When something new is learned, persist it: update a dedicated skill under `H:\We
 - Covers already on disk: omit `-CoverSource`.
 - Set `[Console]::OutputEncoding` / `$OutputEncoding` to UTF-8 no BOM and `$env:PYTHONUTF8=1` before capturing NCMS Python. OEM CP437 turns Hindi into mojibake and fails the built-JSON description check. `NCMS_RESULT` must use `ensure_ascii=True`; read generated JSON/PHP with `Read-Utf8Text`.
 - Homepage is slug `root` and bakes to `public/index.html`. It is not a Notion-queued article. Do not run `publish-notion.ps1 -Slug root` (that overwrites `Root.php` tree markup). Isolated child publishes do not rebuild homepage tiles.
-- Rebuild the homepage with Tiggu: write a temporary `Config/Render.lsv` containing only `root`, delete stale `public/index.html` first (Tiggu `check()` ignores Resource/Url.tsv cover changes), run Tiggu through the renderer selected by `H:\Website\console\config.yaml` (prefer `runner: native`), copy `public/index.html` into `web-public`, commit, and push. Delete `Render.lsv` afterwards. Do not commit it.
+- Rebuild the homepage with Tiggu: write a temporary `Config/Render.lsv` containing only `root`, delete stale `public/index.html` first (Tiggu `check()` ignores Resource/Url.tsv cover changes), run Tiggu through the renderer selected by `D:\Ujnotes\Website\console\config.yaml` (prefer `runner: native`), copy `public/index.html` into `web-public`, commit, and push. Delete `Render.lsv` afterwards. Do not commit it.
 - Never edit `web-public` / GitHub raw HTML by hand (no search-replace on `build/public/*.html`). Production files are minify output. Always render into `interim`, let Tiggu minify into `public`, then publish that. If a tile or script src is wrong, fix source or rerun Tiggu, then publish.
+- `Config/Translations.tsv` component slugs must reflect current canonical paths (e.g. `technology/computer/...` instead of legacy `computer/...`), otherwise Tiggu halts with "Translated component not found: <lang>/<slug>".
+- Every row in `Config/Url.tsv` and `Url_<lang>.tsv` must return HTTP 200 on `ujnotes.local`. If any row 404s (such as invalid `.jpg` rows for `.svg` site pages or ungenerated covers), Tiggu's `download()` sets `Halt=TRUE` and fails the bake with exit code 1.
+- In `Root/.htaccess`, exclude `/manifest.json` from the catch-all `RewriteRule ^(.*?)\.json$ Framework/HTML/Component.php [L]` (`RewriteCond %{REQUEST_URI} !^/manifest\.json$`), so `manifest.json` routes to `Framework/Files/Manifest.json.php` and returns HTTP 200.
 
 ## Resource → URL list
 

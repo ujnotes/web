@@ -155,13 +155,13 @@ wrapper instead of queuing and publishing rows manually:
 ```powershell
 .\publish-notion-subtree.ps1 `
   -RootSlug computer/game/doom `
-  -CoverSource H:\Resource\doom.jpg
+  -CoverSource D:\Ujnotes\Resource\doom.jpg
 ```
 
 The source must already be a valid JPEG. The wrapper discovers eligible
 `publish`/`published` rows in the canonical Notion database, fans the cover out
 to their case-preserving resource paths, queues only those canonical rows,
-uses the renderer selected by `H:\Website\console\config.yaml`, and calls
+uses the renderer selected by `D:\Ujnotes\Website\console\config.yaml`, and calls
 `publish-notion.ps1` for each row. Set `runner: native` for direct host
 rendering through Git Bash and Tiggu, without Docker.
 Nested translations are built and verified atomically. The wrapper finally

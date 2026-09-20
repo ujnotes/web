@@ -29,9 +29,9 @@ param(
 
     [string]$CoverSource,
 
-    [string]$NcmsProject = 'H:\Website\ncms',
+    [string]$NcmsProject = 'D:\Ujnotes\Website\ncms',
 
-    [string]$SiteProject = 'H:\Website\site\project',
+    [string]$SiteProject = 'D:\Ujnotes\Website\site\project',
 
     [string]$BaseUrl = 'https://ujnotes.com',
 
@@ -119,13 +119,15 @@ if ($RootSlug.StartsWith('/') -or $RootSlug.EndsWith('/') -or $RootSlug.Contains
 }
 
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+. (Join-Path $scriptRoot 'PublishRunner.ps1')
+$websiteRoot = Split-Path -Parent $scriptRoot
+$SiteProject = Resolve-UjnotesWebsitePath -Preferred $SiteProject -Fallback (Join-Path $websiteRoot 'site\project')
 $publisher = Join-Path $scriptRoot 'publish-notion.ps1'
 $python = Join-Path $NcmsProject '.venv\Scripts\python.exe'
 $componentRoot = Join-Path $SiteProject 'root\HTML\Component'
 $resourceRoot = Join-Path $SiteProject 'root\Resource'
 $publicRepo = Join-Path $scriptRoot 'build'
 $composeFile = Join-Path $scriptRoot 'compose-dev.yaml'
-. (Join-Path $scriptRoot 'PublishRunner.ps1')
 $publishRunner = Get-UjnotesPublishRunner
 
 foreach ($required in @($publisher, $python, $componentRoot, $resourceRoot, $publicRepo)) {
@@ -300,6 +302,7 @@ try {
             NcmsProject = $NcmsProject
             BaseUrl = $BaseUrl
             DeployTimeoutSeconds = $DeployTimeoutSeconds
+            AllowQueuedLinks = $true
         }
         if ($publishRunner -eq 'docker') {
             $publisherArguments.KeepBuildContainer = $true

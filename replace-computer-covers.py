@@ -16,8 +16,8 @@ import urllib.request
 from html.parser import HTMLParser
 from pathlib import Path
 
-RESOURCE = Path(r"H:\Website\site\project\root\Resource\Computer")
-CSV_PATH = Path(r"H:\Website\site\project\config\Computer_image_credits.csv")
+RESOURCE = Path(r"D:\Ujnotes\Website\site\project\root\Resource\Computer")
+CSV_PATH = Path(r"D:\Ujnotes\Website\site\project\config\Computer_image_credits.csv")
 BACKUP = RESOURCE / "_uncited_backup"
 CATEGORIES = ("OS", "Program", "Programming", "Technology")
 UA = "UjnotesCoverBot/1.0 (https://ujnotes.com/; cover attribution; python)"

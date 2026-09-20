@@ -1,7 +1,29 @@
 Set-StrictMode -Version Latest
 
+function Resolve-UjnotesWebsitePath {
+    param(
+        [Parameter(Mandatory)] [string]$Preferred,
+        [Parameter(Mandatory)] [string]$Fallback
+    )
+
+    if (Test-Path -LiteralPath $Preferred) {
+        return $Preferred
+    }
+    if (Test-Path -LiteralPath $Fallback) {
+        return $Fallback
+    }
+    return $Preferred
+}
+
 function Get-UjnotesPublishRunner {
-    param([string]$ConfigPath = 'H:\Website\console\config.yaml')
+    param([string]$ConfigPath = 'D:\Ujnotes\Website\console\config.yaml')
+
+    if (-not (Test-Path -LiteralPath $ConfigPath -PathType Leaf)) {
+        $localConfig = 'D:\Ujnotes\Website\console\config.yaml'
+        if (Test-Path -LiteralPath $localConfig -PathType Leaf) {
+            $ConfigPath = $localConfig
+        }
+    }
 
     $runner = 'docker'
     if (Test-Path -LiteralPath $ConfigPath -PathType Leaf) {

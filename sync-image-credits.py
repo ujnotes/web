@@ -10,7 +10,7 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
-ROOT = Path(r"H:\Website")
+ROOT = Path(r"D:\Ujnotes\Website")
 SITE_RESOURCE = ROOT / "site" / "project" / "root" / "Resource"
 CONFIG = ROOT / "site" / "project" / "config"
 ID_TSV = CONFIG / "ID.tsv"

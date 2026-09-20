@@ -29,7 +29,7 @@ param(
     [Parameter(Position = 0)]
     [string]$Slug,
 
-    [string]$NcmsProject = 'H:\Website\ncms',
+    [string]$NcmsProject = 'D:\Ujnotes\Website\ncms',
 
     [string]$BaseUrl = 'https://ujnotes.com',
 
@@ -391,16 +391,20 @@ function Update-FirebaseConfig {
         [Parameter(Mandatory)] [string]$Path,
         [Parameter(Mandatory)] [string]$ArticleSlug,
         [Parameter(Mandatory)] [bool]$HasCover,
-        [bool]$HasSvg = $false
+        [bool]$HasSvg = $false,
+        [string[]]$VariantPublicSlugs = @()
     )
 
+    $variantArgs = ($VariantPublicSlugs -join ',')
     $code = @'
 import json
 import sys
 
 path, slug, has_cover_text, has_svg_text = sys.argv[1:5]
+variant_slugs_text = sys.argv[5] if len(sys.argv) > 5 else ""
 has_cover = has_cover_text == "1"
 has_svg = has_svg_text == "1"
+variant_slugs = [s.strip() for s in variant_slugs_text.split(",") if s.strip()]
 
 with open(path, encoding="utf-8") as source:
     data = json.load(source)
@@ -430,6 +434,10 @@ if short_source != destination:
 required = [
     {"source": f"/{slug}.json", "destination": f"/{slug}/index.json"},
 ]
+for variant_slug in variant_slugs:
+    if variant_slug != slug:
+        required.append({"source": f"/{variant_slug}.json", "destination": f"/{variant_slug}/index.json"})
+
 if has_cover:
     required.append({"source": f"/{slug}.jpg", "destination": f"/{slug}/index.jpg"})
 if has_svg:
@@ -450,7 +458,7 @@ with open(path, "w", encoding="utf-8", newline="\n") as target:
 '@
 
     Invoke-Native -FilePath $Python `
-        -ArgumentList @('-X', 'utf8', '-c', $code, $Path, $ArticleSlug, $(if ($HasCover) { '1' } else { '0' }), $(if ($HasSvg) { '1' } else { '0' })) `
+        -ArgumentList @('-X', 'utf8', '-c', $code, $Path, $ArticleSlug, $(if ($HasCover) { '1' } else { '0' }), $(if ($HasSvg) { '1' } else { '0' }), $variantArgs) `
         -WorkingDirectory $PythonWorkingDirectory
 }
 
@@ -502,9 +510,15 @@ function Remove-WorkDirectory {
 }
 
 function Import-PipelineStateModule {
-    $path = 'H:\Website\console\PipelineState.ps1'
-    if (Test-Path -LiteralPath $path) {
-        return $path
+    $candidates = @(
+        'D:\Ujnotes\Website\console\PipelineState.ps1',
+        (Join-Path $PSScriptRoot '..\console\PipelineState.ps1'),
+        'H:\Website\console\PipelineState.ps1'
+    )
+    foreach ($path in $candidates) {
+        if (Test-Path -LiteralPath $path) {
+            return (Resolve-Path -LiteralPath $path).Path
+        }
     }
     return $null
 }
@@ -604,7 +618,7 @@ $realIdBackup = $null
 
 if ($Resume) {
     if (-not $pipelineLoaded) {
-        throw 'Resume requires H:\Website\console\PipelineState.ps1.'
+        throw 'Resume requires console/PipelineState.ps1.'
     }
     $checkpoint = Get-PublishCheckpoint
     if ($Slug -and $checkpoint.slug -and $Slug -ne [string]$checkpoint.slug) {
@@ -963,6 +977,26 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
         }
     }
     Write-Utf8Text -Path $stageUrlPath -Text $stageUrlText
+
+    $stageTranslationsPath = Join-Path $stageProject 'Config\Translations.tsv'
+    if (Test-Path -LiteralPath $stageTranslationsPath) {
+        $stageTranslationLines = @([System.IO.File]::ReadAllLines($stageTranslationsPath))
+        if ($stageTranslationLines.Count -gt 0) {
+            $stageTranslationText = $stageTranslationLines[0] + "`n"
+            $stageTranslationRows = @(
+                $stageTranslationLines |
+                    Select-Object -Skip 1 |
+                    Where-Object {
+                        $fields = @($_ -split "`t")
+                        $fields.Count -ge 1 -and $fields[0] -eq $targetSlug
+                    }
+            )
+            if ($stageTranslationRows.Count -gt 0) {
+                $stageTranslationText += ($stageTranslationRows -join "`n") + "`n"
+            }
+            Write-Utf8Text -Path $stageTranslationsPath -Text $stageTranslationText
+        }
+    }
     Complete-Stage 'create-stage'
     }
 
@@ -1141,7 +1175,8 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
         -Path $firebasePath `
         -ArticleSlug $targetSlug `
         -HasCover $hasPublishedCover `
-        -HasSvg $hasPublishedSvg
+        -HasSvg $hasPublishedSvg `
+        -VariantPublicSlugs @($builtVariants.PublicSlug)
 
     $sitemapPath = Join-Path $publicRepo 'public\sitemap.xml'
     Add-SitemapUrl -Path $sitemapPath -Url "$BaseUrl/$targetSlug"

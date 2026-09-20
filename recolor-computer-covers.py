@@ -7,7 +7,7 @@ from pathlib import Path
 from PIL import Image
 import numpy as np
 
-RESOURCE = Path(r"H:\Website\site\project\root\Resource\Computer")
+RESOURCE = Path(r"D:\Ujnotes\Website\site\project\root\Resource\Computer")
 BRAND = np.array([0x56, 0xB4, 0xD1], dtype=np.uint8)
 
 

@@ -3,3 +3,4 @@ build/
 gclosure/
 ci/**/__pycache__/
 __pycache__/
+_layout_shots/

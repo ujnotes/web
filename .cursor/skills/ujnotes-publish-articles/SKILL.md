@@ -9,11 +9,21 @@ description: >-
 
 # Publish Ujnotes articles
 
-For a **new** article, do not start here. Follow `H:\AGENTS.md` **New article sequence**: Notion English, then approved translations, then local files, then approved interim/public bake, then this publish-to-web step.
+For a **new** article, do not start here. Follow `D:\Ujnotes\AGENTS.md` **New article sequence**: Notion English, then approved translations, then local files, then approved interim/public bake, then this publish-to-web step.
+
+---
+
+## Native runner & console
+
+- **Dockerless by default**: Publish Ujnotes with the native runner (`PublishRunner.ps1`). Do not start Docker Desktop or Docker Compose unless the user explicitly requests Docker.
+- **Console trigger**: Start user-requested publications through `https://console.ujnotes.local/` whenever it is available, allowing progress tracking.
+- **Native tool pinning**: Tooling dependencies are managed via `D:\Ujnotes\Website\project\Install-NativePublishTools.ps1` (Git Bash, PHP, Python, Java, minify, Closure Compiler).
+
+---
 
 ## Command
 
-From `H:\Website\project` (do not wrap in `powershell.exe -File`):
+From `D:\Ujnotes\Website\project` (do not wrap in `powershell.exe -File`):
 
 ```powershell
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
@@ -23,50 +33,66 @@ $env:PYTHONIOENCODING = 'utf-8'
 & .\publish-notion-subtree.ps1 -RootSlug <slug>
 ```
 
-Covers already on disk: omit `-CoverSource`. Use `-DryRun` first when the subtree is uncertain.
+- **Subtree**: Covers already on disk: omit `-CoverSource`. Use `-DryRun` first when the subtree is uncertain.
+- **Single article (no descendants)**: Queue that canonical Notion row to `Status = publish`, then:
+  ```powershell
+  & .\publish-notion.ps1 -Slug <slug>
+  ```
+- **NCMS tree**: Default `-NcmsProject` is `D:\Ujnotes\Website\ncms`. Console passes that switch. Website NCMS must keep `resolve_publish_pages` and `wrap_leading_date`, or slug-targeted publishes fail.
+- **Windows UTF-8 encoding**: Console encoding defaults to OEM CP437. Always set UTF-8 (no BOM), `$env:PYTHONUTF8=1`, and `$env:PYTHONIOENCODING=utf-8` before running NCMS Python. Dump `NCMS_RESULT` with `ensure_ascii=True`.
 
-Single article (no descendants): queue that canonical Notion row to `publish`, then `& .\publish-notion.ps1 -Slug <slug>`. The single-page publisher only selects `Status=publish` rows.
+---
 
-Default `-NcmsProject` is `H:\Website\ncms`. Console does not pass that switch. Do not use `D:\Projects\Cutie\Sample\ncms\project` unless that tree is confirmed to include `resolve_publish_pages` and `wrap_leading_date`. Website NCMS must keep both, or a slug-targeted publish fails and Timeline date spans are missing from generated PHP.
+## Build, pipeline & runtime safeguards
 
-After NCMS copies each variant `index.php`, `publish-notion.ps1` must run `Protect-TimelineDates.py` on that file. That re-wraps leading `dd Mon yyyy —` as `<span class='date'>…</span> —` so a republish cannot drop WCodes-style dash alignment. The wrap is idempotent. CSS lives in site `CSS/Base/Component/Timeline.css` and Framework `CSS/Base/Component/Timeline.css` (`min-width:11ch`). Verify live `/{slug}.json` still contains `class='date'`.
+1. **Cover & URL rules**:
+   - Every row in `Config/Url.tsv` and `Url_<lang>.tsv` must return HTTP 200 on `ujnotes.local`. If any row 404s, Tiggu's `download()` sets `Halt=TRUE` and fails the bake.
+   - Canonical covers are requested as flat `/{slug}.jpg`, while baked Firebase may store them as `/{slug}/index.jpg`. Staging must preserve the index layout and maintain the canonical rewrite.
+2. **AJAX JSON parity & shadowing flats**:
+   - XURL navigation loads `/{slug}.json`, not the HTML file. Both `index.html` and `index.json` must deploy atomically.
+   - Isolated Tiggu may emit flat `public/{slug}.html` and `.json`. The publisher must install `{slug}/index.*` and delete shadowing flats via `Resolve-StagedPageArtifacts` and `Remove-ShadowingFlatArtifacts`.
+   - Firebase Hosting rewrites must include every translation variant: `/{lang}/{slug}.json -> /{lang}/{slug}/index.json`. Without these rewrites, live JSON verification loops fail with HTTP 404 for localized variants.
+3. **Missing inline assets**:
+   - `Framework/HTML/Fragment/Component_image.php` must not call `getimagesize` on a missing file (prevents PHP 8.4 fatal errors that leak HTML into `/{slug}.json`). It falls back to `/resource/placeholder.svg`.
+4. **Breadcrumbs & up-nav**:
+   - Breadcrumb (`getComponentPathStylized`) and up-nav (`getNearestExistingParentId`) must skip ID rows that do not exist yet, preventing intermediate 404s on nested slugs.
+5. **Timeline dates**:
+   - Wrap leading `dd Mon yyyy —` in `<span class='date'>…</span> —`. NCMS overwrite drops these spans unless `publish-notion.ps1` runs `Protect-TimelineDates.py` immediately after copying each variant PHP (idempotent).
+6. **Metadata & schema integrity**:
+   - `Merge-IdRow` must preserve an existing `Config/ID.tsv` Type (`page` for Timeline, Changelog, Roadmap; `article` for standard content).
+   - Localized `Config/ID_<lang>.tsv` descriptions must match Notion translation metadata exactly.
+   - `Config/Translations.tsv` component slugs must reflect current canonical paths, avoiding legacy redirected paths.
+   - Exclude `/manifest.json` from the `.json` rewrite in `Root/.htaccess`.
+7. **Queued links guard**:
+   - The queued-link guard is a substring match on baked JSON. If the match is site chrome (e.g. navigation) rather than an unpublished body dependency, resume with `-AllowQueuedLinks`.
+8. **Checkpoints**:
+   - If network or renderer access fails midway, resume the same checkpoint (`-Resume`); never refetch or mark published before verification succeeds.
+9. **Tiggu cache busting**:
+   - Use the native Python script-reference rewriter on Windows. A single GNU `sed` pass over the baked tree can stall for minutes.
 
-Isolated Tiggu may write flat `public/{slug}.html` and `.json` instead of `{slug}/index.*`. Use `Resolve-StagedPageArtifacts` to install the index layout, then delete shadowing flats.
-
-`Merge-IdRow` must preserve an existing `Config/ID.tsv` Type. Timeline, Changelog, and Roadmap are `page`.
-
-## What must be published together
-
-XURL navigation loads `/{slug}.json` (and `/<lang>/{slug}.json`), not the HTML file. A full-page reload can look correct while AJAX still shows the previous article.
-
-For every canonical row, the publisher must deploy **both** `index.html` and `index.json`, then verify live `/{slug}.json` (and each translation JSON) against the baked `index.json`. Do not treat HTML-only copy as a finished publish.
-
-Also deploy:
-
-- cover `/{slug}.jpg` (on disk as `index.jpg` plus Firebase rewrite)
-- inline Url.tsv assets (for example `example.svg` beside the article)
-- nested translation HTML/JSON atomically
+---
 
 ## Parent listings and homepage
 
-An isolated child publish does not rebuild parent listing HTML. If `/computer/algorithm` still uses `/resource/placeholder.svg` while `/computer/algorithm/binary_search.jpg` is live, republish `computer/algorithm`. Check listing `src=`, not only the article URL.
+- An isolated child publish does not rebuild parent listing HTML. To refresh tiles on a parent (e.g. `/computer/game`), RootSlug must be `computer/game`, not only `computer/game/doom`.
+- Do not run `publish-notion.ps1 -Slug root`. Rebuild the homepage with Tiggu and a temporary `Config/Render.lsv` containing only `root` (see `ujnotes-home-tree`).
 
-Do not run `publish-notion.ps1 -Slug root`. Rebuild the homepage with Tiggu and `Config/Render.lsv` containing only `root`.
+---
 
 ## Preconditions
 
-- Clean `web-site` (`H:\Website\site\project`) and `web-public` (`H:\Website\project\build`) before a subtree publish.
-- Localized `Config/ID_<lang>.tsv` descriptions must match Notion exactly. A trailing `।` in Hindi that Notion does not have fails "Built JSON description does not match Notion".
+- Clean `web-site` (`D:\Ujnotes\Website\site\project`) and `web-public` (`D:\Ujnotes\Website\project\build`) before publishing.
 - Filter `ID.tsv`, every `ID_<lang>.tsv`, and `Translations.tsv` to the selected slug for an isolated build.
 
-## After deploy
+---
+
+## After deploy verification
 
 Verify:
-
 - `https://ujnotes.com/{slug}`
 - `https://ujnotes.com/{slug}.json`
 - `https://ujnotes.com/<lang>/{slug}.json` when translated
 - `https://ujnotes.com/{slug}.jpg`
-- parent listing tile `src=` when the cover is new
+- Parent listing tile `src=` when the cover is new
 
 Commit leftover `web-site` ID/Url/PHP updates. Production is the `web-public` push.

@@ -294,6 +294,63 @@ function Set-IdStatus {
     Write-LinesPreservingNewline -Path $Path -Lines @($lines)
 }
 
+function Merge-TranslationsRow {
+    param(
+        [Parameter(Mandatory)] [string]$Path,
+        [Parameter(Mandatory)] [string]$ArticleSlug,
+        [Parameter(Mandatory)] [string]$ArticleRow
+    )
+
+    $lines = @([System.IO.File]::ReadAllLines($Path))
+    if ($lines.Count -eq 0) {
+        throw "Translations file is empty: $Path"
+    }
+
+    $found = $false
+    $updated = foreach ($line in $lines) {
+        $fields = @($line -split "`t")
+        if ($fields.Count -ge 1 -and $fields[0] -eq $ArticleSlug) {
+            $found = $true
+            $ArticleRow
+        }
+        else {
+            $line
+        }
+    }
+    if (-not $found) {
+        $updated = @($updated) + $ArticleRow
+    }
+
+    Write-LinesPreservingNewline -Path $Path -Lines @($updated)
+}
+
+function Set-TranslationsStatus {
+    param(
+        [Parameter(Mandatory)] [string]$Path,
+        [Parameter(Mandatory)] [string]$ArticleSlug,
+        [Parameter(Mandatory)] [string]$Status
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return
+    }
+    $lines = foreach ($line in [System.IO.File]::ReadAllLines($Path)) {
+        $fields = @($line -split "`t")
+        if ($fields.Count -ge 2 -and $fields[0] -eq $ArticleSlug) {
+            for ($i = 1; $i -lt $fields.Count; $i++) {
+                if ($fields[$i] -in @('publish', 'published')) {
+                    $fields[$i] = $Status
+                }
+            }
+            $fields -join "`t"
+        }
+        else {
+            $line
+        }
+    }
+    Write-LinesPreservingNewline -Path $Path -Lines @($lines)
+}
+
 function Merge-UrlRow {
     param(
         [Parameter(Mandatory)] [string]$Path,
@@ -876,6 +933,38 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
     )
     Merge-IdRow -Path $realIdPath -ArticleSlug $targetSlug -ArticleRow $articleRow
 
+    Get-ChildItem -LiteralPath (Join-Path $renderRoot 'Config') -File -Filter 'ID_*.tsv' |
+        ForEach-Object {
+            $realLocalizedIdPath = Join-Path (Split-Path -Parent $realIdPath) $_.Name
+            if (Test-Path -LiteralPath $realLocalizedIdPath) {
+                $locLines = [System.IO.File]::ReadAllLines($_.FullName)
+                $locArticleRow = $locLines |
+                    Where-Object {
+                        $fields = @($_ -split "`t")
+                        $fields.Count -ge 2 -and $fields[1] -eq $targetSlug
+                    } |
+                    Select-Object -First 1
+                if ($locArticleRow) {
+                    Merge-IdRow -Path $realLocalizedIdPath -ArticleSlug $targetSlug -ArticleRow $locArticleRow
+                }
+            }
+        }
+
+    $renderTranslationsPath = Join-Path $renderRoot 'Config\Translations.tsv'
+    $realTranslationsPath = Join-Path (Split-Path -Parent $realIdPath) 'Translations.tsv'
+    if ((Test-Path -LiteralPath $renderTranslationsPath) -and (Test-Path -LiteralPath $realTranslationsPath)) {
+        $transLines = [System.IO.File]::ReadAllLines($renderTranslationsPath)
+        $transArticleRow = $transLines |
+            Where-Object {
+                $fields = @($_ -split "`t")
+                $fields.Count -ge 1 -and $fields[0] -eq $targetSlug
+            } |
+            Select-Object -First 1
+        if ($transArticleRow) {
+            Merge-TranslationsRow -Path $realTranslationsPath -ArticleSlug $targetSlug -ArticleRow $transArticleRow
+        }
+    }
+
     $hasCover = [System.IO.File]::ReadAllText($realComponent).Contains('Component_cover.php')
     Merge-UrlRow -Path $realUrlPath -ArticleSlug $targetSlug -HasCover $hasCover
     Add-SitemapUrl -Path $realSitemapPath -Url "$BaseUrl/$targetSlug"
@@ -1292,6 +1381,15 @@ print(f"{expected_slug} status={final_status}")
         -ArgumentList @('-X', 'utf8', '-c', $statusCode, [string]$article.page_id, $targetSlug) `
         -WorkingDirectory $NcmsProject
     Set-IdStatus -Path $realIdPath -ArticleSlug $targetSlug -Status 'published'
+    Get-ChildItem -LiteralPath (Split-Path -Parent $realIdPath) -File -Filter 'ID_*.tsv' |
+        ForEach-Object {
+            try {
+                Set-IdStatus -Path $_.FullName -ArticleSlug $targetSlug -Status 'published'
+            }
+            catch {
+            }
+        }
+    Set-TranslationsStatus -Path (Join-Path (Split-Path -Parent $realIdPath) 'Translations.tsv') -ArticleSlug $targetSlug -Status 'published'
 
     $finalStatus = @(Invoke-Native -FilePath 'git' -ArgumentList @('status', '--porcelain') -WorkingDirectory $publicRepo -Capture)
     if ($finalStatus.Count -gt 0 -and ($finalStatus -join '').Trim()) {

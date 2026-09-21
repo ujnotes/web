@@ -60,6 +60,7 @@ $env:PYTHONIOENCODING = 'utf-8'
    - Wrap leading `dd Mon yyyy —` in `<span class='date'>…</span> —`. NCMS overwrite drops these spans unless `publish-notion.ps1` runs `Protect-TimelineDates.py` immediately after copying each variant PHP (idempotent).
 6. **Metadata & schema integrity**:
    - `Merge-IdRow` must preserve an existing `Config/ID.tsv` Type (`page` for Timeline, Changelog, Roadmap; `article` for standard content).
+   - Single-article publish (`publish-notion.ps1`) automatically synchronizes localized variants: merges rendered `Config/ID_<lang>.tsv` into the site's `ID_<lang>.tsv` and rendered `Config/Translations.tsv` into `Translations.tsv` during `update-source`, and updates their status to `published` in `mark-published`.
    - Localized `Config/ID_<lang>.tsv` descriptions must match Notion translation metadata exactly.
    - `Config/Translations.tsv` component slugs must reflect current canonical paths, avoiding legacy redirected paths.
    - Exclude `/manifest.json` from the `.json` rewrite in `Root/.htaccess`.

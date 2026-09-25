@@ -10,12 +10,17 @@ description: >-
 
 ## Information architecture
 
-- **Homepage root**: Roots at **World** with synthetic children **Philosophy → Science → Technology** (`home_menu_branch_children`). Hub URLs stay `/philosophy`, `/science`, `/technology`.
+- **Homepage root**: Roots at **World** with synthetic children **Philosophy → Science → Technology → Business**. Hub URLs stay `/philosophy`, `/science`, `/technology`, `/business`. The published Notion `root` row's 🏠 JSON callout owns the synthetic order.
 - **Meta pages**: Timeline, Changelog, and Roadmap are meta pages (`type: page`), never under World.
 - **Canonical hierarchy**:
-  - `technology` (hub) → `technology/computer` (Computer article & computing tree) → Algorithm, Program, OS, Programming, Game, AI, etc.
-  - `technology` (hub) → `technology/electronics` (Electronics article) → Semiconductor, Transistors, Integrated Circuits, Digital Electronics, Microprocessor, etc.
+  - `science` (hub) → `science/physics` (large group) → Electrical, Electromagnetism, Optics, Quantum Physics. Direct children capped as leaves on homepage.
+  - `science` (hub) → `science/mathematics` (separate row below Physics) → Axioms, Proof, Multiplication, Zero, Division by Zero.
+  - `technology` (hub) → `technology/computer` (large group) → Algorithm, Program, OS, Programming, Game, AI, etc.
+  - `technology` (hub) → `technology/electronics` (large group) → Semiconductor, Transistors, Integrated Circuits, Digital Electronics, Microprocessor, etc.
   - `technology` (hub) → `technology/telecommunications`, `technology/radio`, `technology/power_electronics`, `technology/information_technology`.
+  - `business` (hub) → 5 fundamental pillars: `business/trade`, `business/money`, `business/debt`, `business/market`, `business/startup`. Pillar children capped as leaves on homepage.
+
+Business pillars with visible child tiles must each occupy a full row. The child subtree can be much wider than a standard 184px pillar node; placing two pillars in one row makes those child tiles overlap neighboring pillars. Keep the full-row rule scoped to direct children of `#home-business-children` in `Home.css`.
 
 ---
 
@@ -23,40 +28,40 @@ description: >-
 
 When a section inside a hub or tree expands into a multi-column horizontal subtree:
 1. **Large groups take the whole space**:
-   - Register the slug in `home_menu_large_group_slugs()` in `Home_menu.php` (e.g. `technology/computer`, `technology/electronics`).
+   - Register the slug in the Notion `root` row's 🏠 JSON under `largeGroupSlugs` (e.g. `science/physics`, `technology/computer`, `technology/electronics`), then run NCMS `sync-home`.
    - `home_menu_render_tree()` attaches class `home-menu-large-group`.
    - In CSS, `.home-menu-large-group` sets `flex: 0 0 100%; width: 100%; max-width: 100%`.
    - This gives its child tree unconstrained horizontal width across the full row.
    - Because no sibling shares its row, `homeMenuSharesRowWithSibling` returns `false`, assigning a clean **side leader** toggle next to the section tile (no colliding bottom drops).
 2. **Other sections get pushed down together**:
-   - Sibling sections without large subtrees (e.g. `Telecommunications`, `Radio`, `Power Electronics`, `Information Technology`) retain standard tile width (`flex: 0 0 var(--home-node-width)` = 184px).
+   - Sibling sections without large subtrees (e.g. `science/mathematics`, or `Telecommunications`, `Radio`, etc.) retain standard tile width (`flex: 0 0 var(--home-node-width)` = 184px).
    - Because the preceding large group takes 100% width, these remaining sections wrap down to the next row **together**, sitting side-by-side as a clean row of sibling topic tiles.
-   - Mark secondary sections with many child articles as leaves on the homepage (`home_menu_leaf_slugs()`) so they do not spill uncurated subtrees across the shared row.
+   - Mark secondary sections with many child articles as leaves (`leafSlugs`) or cap their direct children (`capChildrenOf`) in the Notion 🏠 policy so they do not spill uncurated subtrees across the shared row.
 
 ---
 
 ## Connector patterns & layout rules
 
-1. **World hubs**: World roots at World with synthetic children Philosophy → Science → Technology. Hubs use class `home-menu-hub`, stack full-width in `#home-world-children` (column, 24px gaps). Hubs never use bottom connectors.
+1. **World hubs**: World roots at World with synthetic children Philosophy → Science → Technology → Business. Hubs use class `home-menu-hub`, stack full-width in `#home-world-children` (column, 24px gaps). Hubs never use bottom connectors.
 2. **World leader**: World's vertical spine stays near the left (`#home-world-children` padding-left ~8px). Hub tiles branch off it with short elbows. Each hub offsets its own `--home-glyph-center` / `--home-indent` so the hub's outgoing spine does not sit on World's leader (no stacked double spines).
 3. **Side vs bottom leaders**: Use a **side** spine (toggle beside the tile) when children stack vertically under one parent or when a section takes full width. Use a **bottom** leader (drop under the parent tile, then horizontal) only when the parent **shares a horizontal row with another sibling** that also has children (`homeMenuSharesRowWithSibling` — previous or next; first-in-row counts, e.g. Algorithm beside Program).
 4. **Bottom-leader glyph**: On a bottom leader, park the expand/collapse glyph **soon after the line start** (under the parent tile / top of the vertical drop), not out at the first child's elbow.
 5. **Child row alignment**: When several parents in one row use bottom leaders (Algorithm / Program / OS / …), their first visible children (Binary Search / Illustrator / *Nix / …) must sit on the **same horizontal level**. Same `margin-top` on those subtrees; do not mix side-spine and bottom-leader for siblings on one row.
 6. **Toggle near tile**: For side spines, the +/- hit target stays next to its origin tile (glyph center just left of the tile). Do not leave the toggle far out on a long elbow.
-7. **Cap / select**:
-   - `home_menu_leaf_slugs()`: shows these nodes on the homepage but does not expand their descendants.
-   - `home_menu_cap_children_of()`: direct children of these nodes are shown as leaves (no deeper expansion on the homepage).
-   - `home_menu_selected_child_slugs()`: parent slug => list of child slugs to show in explicit order. Unselected siblings are omitted and a vertical `⋮` more-link is rendered on the last tile.
-   - `home_menu_selected_child_limit()`: parent slug => maximum count of children to show when no explicit selected-child list is configured.
+7. **Cap / select**: The Notion 🏠 JSON is the source of `config/Home.json`. `leafSlugs` shows nodes without descendants; `capChildrenOf` makes direct children leaves; `selectedChildren` gives an explicit ordered subset (with a `⋮` more-link); and `childLimits` caps otherwise automatic children. The renderer derives every other node from published `Config/ID.tsv`, in its declared order.
 8. **Isolation**: Hub subtrees and large group subtrees use `isolation: isolate` so absolute spines do not paint over subsequent sections.
 9. **Image credits**: Cover image credits live in the **footer**, never directly under the home tree.
+10. **Uniform strokes**: Use an opaque color for ordinary tree connectors in both themes. Translucent strokes brighten where a parent leader and child elbow overlap; keep alternate dashed connectors visually distinct through their dash pattern.
 
 ---
 
 ## Files
 
-- **Markup**: `root/HTML/Component/Root.php` (renders branch `'world'`).
-- **Tree logic & curation**: `root/HTML/Fragment/Home_menu.php`.
+Article footer navigation uses the published `Config/ID.tsv` hierarchy. When an article has no direct child tiles, `SubList.php` shows an FF link to the next localized article in depth-first tree order, continuing through ancestor siblings. Do not use raw TSV adjacency: newly appended descendants can appear after unrelated branches.
+
+- **Markup**: `root/HTML/Component/Root.php` and the Hindi variant are generated from the Notion `root` page; edit the introductory text there.
+- **Tree and side menu logic**: `root/Framework/API/Navigation.php`.
+- **Tree and side menu policy**: 🏠 and 🧭 JSON code blocks under callouts on the published Notion `root` page. NCMS writes `config/Home.json` and `config/Menu.json` with `sync-home`.
 - **Layout CSS**: `root/CSS/Base/Component/Home/Home.css` and `Home_narrow.css`.
 - **Connector geometry & toggles**: `root/JS/Page/Root.js`.
 
@@ -64,7 +69,7 @@ When a section inside a hub or tree expands into a multi-column horizontal subtr
 
 ## Rebuilding the homepage
 
-The homepage slug is `root` and bakes to `public/index.html`. It is **not** a Notion-queued article. Never run `publish-notion.ps1 -Slug root` (that would overwrite `Root.php` tree markup).
+The homepage slug is `root` and bakes to `public/index.html`. Its source is the published Notion `root` row, with a 📐 `home` layout and separate 🏠 and 🧭 JSON callouts. Run `ncms_fetch.py sync-home --site-project D:\Ujnotes\Website\site\project` from NCMS to update local source. Do not use the ordinary article publisher for `root`; it does not stage the two menu policy files.
 
 ### Build steps:
 1. Write a temporary `Config/Render.lsv` in `Website/site/project`:

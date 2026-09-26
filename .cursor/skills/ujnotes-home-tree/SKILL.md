@@ -52,6 +52,10 @@ When a section inside a hub or tree expands into a multi-column horizontal subtr
 8. **Isolation**: Hub subtrees and large group subtrees use `isolation: isolate` so absolute spines do not paint over subsequent sections.
 9. **Image credits**: Cover image credits live in the **footer**, never directly under the home tree.
 10. **Uniform strokes**: Use an opaque color for ordinary tree connectors in both themes. Translucent strokes brighten where a parent leader and child elbow overlap; keep alternate dashed connectors visually distinct through their dash pattern.
+11. **Tile motion**: Connector geometry is measured from tile bounding boxes in `Root.js`. Animate each tile's image and text children, not the tile or its layout ancestors. Reveal only tiles below the initial viewport, and disable motion for `prefers-reduced-motion`.
+12. **Homepage portrait**: Its link uses `:focus` to reveal the full image. Keep any idle animation on the unfocused link so the expanded image stays still and usable.
+13. **Intro backdrop**: Use a low-contrast image behind the homepage introduction and fade it into the page on the left, right, and bottom so copy and the portrait remain legible. Register new static backdrop assets under `resource/` in the bake URL list.
+14. **AJAX parity**: An XURL home load inserts the tree into the current article shell, which may have older inline CSS. Include the current Home styles in the root JSON content through the general component renderer. Recheck connector geometry on subsequent animation frames after the first pass changes connector classes and wrapping. Compare settled direct and AJAX layouts at the same viewport, including navigation from an older published article.
 
 ---
 
@@ -85,5 +89,7 @@ The homepage slug is `root` and bakes to `public/index.html`. Its source is the 
 4. Verify `public/index.html`:
    - Inspect DOM structure and ensure no overlapping nodes.
    - Verify tiles and more-links (`home-menu-more`).
+   - Verify the AJAX root JSON contains the same home tree. Deploy it with the HTML and updated script bundle.
 5. Remove `Config/Render.lsv` immediately afterwards (never commit `Render.lsv`).
-6. For production release: copy `public/index.html` to `web-public/index.html`, commit, and push.
+6. An isolated homepage bake can also refresh previously cached pages and language variants. Compare visible content and tile counts against deployed artifacts; carry over only the reviewed homepage output and its referenced script bundle.
+7. For production release: copy the reviewed `public/index.html` and its referenced script bundle to `web-public`, commit, and push.

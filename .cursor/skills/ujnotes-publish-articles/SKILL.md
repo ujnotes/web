@@ -48,6 +48,7 @@ $env:PYTHONIOENCODING = 'utf-8'
 1. **Cover & URL rules**:
    - Every row in `Config/Url.tsv` and `Url_<lang>.tsv` must return HTTP 200 on `ujnotes.local`. If any row 404s, Tiggu's `download()` sets `Halt=TRUE` and fails the bake.
    - Canonical covers are requested as flat `/{slug}.jpg`, while baked Firebase may store them as `/{slug}/index.jpg`. Staging must preserve the index layout and maintain the canonical rewrite.
+   - After local cover edits, run `project/Sync-PublishedImages.ps1` to compare every already-published `Url.tsv` JPG route with `root/Resource`. Use `-Apply` to update stale files in the `web-public` checkout, then commit and push that checkout. Firebase serves an existing flat JPG before a rewrite, so when flat and index artifacts both exist, both must match the local source. A URL row alone does not refresh deployed image bytes.
 2. **AJAX JSON parity & shadowing flats**:
    - XURL navigation loads `/{slug}.json`, not the HTML file. Both `index.html` and `index.json` must deploy atomically.
    - Isolated Tiggu may emit flat `public/{slug}.html` and `.json`. The publisher must install `{slug}/index.*` and delete shadowing flats via `Resolve-StagedPageArtifacts` and `Remove-ShadowingFlatArtifacts`.
@@ -76,7 +77,7 @@ $env:PYTHONIOENCODING = 'utf-8'
 ## Parent listings and homepage
 
 - An isolated child publish does not rebuild parent listing HTML. To refresh tiles on a parent (e.g. `/computer/game`), RootSlug must be `computer/game`, not only `computer/game/doom`.
-- Do not run `publish-notion.ps1 -Slug root`. Rebuild the homepage with Tiggu and a temporary `Config/Render.lsv` containing only `root` (see `ujnotes-home-tree`).
+- Do not run `publish-notion.ps1 -Slug root`. The published Notion `root` row is pulled into local homepage components and menu policies with NCMS `sync-home`, then rebuilt with Tiggu and a temporary `Config/Render.lsv` containing only `root` (see `ujnotes-home-tree`).
 
 ---
 

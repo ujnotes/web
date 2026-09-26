@@ -73,7 +73,7 @@ Article footer navigation uses the published `Config/ID.tsv` hierarchy. When an 
 
 ## Rebuilding the homepage
 
-The homepage slug is `root` and bakes to `public/index.html`. Its source is the published Notion `root` row, with a 📐 `home` layout and separate 🏠 and 🧭 JSON callouts. Run `ncms_fetch.py sync-home --site-project D:\Ujnotes\Website\site\project` from NCMS to update local source. Do not use the ordinary article publisher for `root`; it does not stage the two menu policy files.
+The homepage slug is `root` and bakes to `public/index.html`. Its source is the published Notion `root` row, with a 📐 `home` layout and separate 🏠 and 🧭 JSON callouts. Run `D:\Ujnotes\Website\project\Sync-Home.ps1` to update local source. It calls NCMS `sync-home` and preserves the Home AJAX style include in both generated language components. Do not use the ordinary article publisher for `root`; it does not stage the two menu policy files.
 
 ### Build steps:
 1. Write a temporary `Config/Render.lsv` in `Website/site/project`:

@@ -57,7 +57,7 @@ When a section inside a hub or tree expands into a multi-column horizontal subtr
 
 ## Files
 
-Article footer navigation uses the published `Config/ID.tsv` hierarchy. When an article has no direct child tiles, `SubList.php` shows an FF link to the next localized article in depth-first tree order, continuing through ancestor siblings. Do not use raw TSV adjacency: newly appended descendants can appear after unrelated branches.
+Article footer navigation uses the published `Config/ID.tsv` hierarchy. When an article has no direct child tiles, `SubList.php` shows an inline SVG fast-forward icon beside the next localized article in depth-first tree order, continuing through ancestor siblings. Keep an accessible link label. Do not use raw TSV adjacency: newly appended descendants can appear after unrelated branches.
 
 - **Markup**: `root/HTML/Component/Root.php` and the Hindi variant are generated from the Notion `root` page; edit the introductory text there.
 - **Tree and side menu logic**: `root/Framework/API/Navigation.php`.

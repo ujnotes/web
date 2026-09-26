@@ -48,6 +48,7 @@ $env:PYTHONIOENCODING = 'utf-8'
 1. **Cover & URL rules**:
    - Every row in `Config/Url.tsv` and `Url_<lang>.tsv` must return HTTP 200 on `ujnotes.local`. If any row 404s, Tiggu's `download()` sets `Halt=TRUE` and fails the bake.
    - Canonical covers are requested as flat `/{slug}.jpg`, while baked Firebase may store them as `/{slug}/index.jpg`. Staging must preserve the index layout and maintain the canonical rewrite.
+   - An article may intentionally have no cover asset. `Component_cover.php` must return without output when `getComponentImage` is null; never expose a missing-cover diagnostic in rendered HTML or JSON.
    - After local cover edits, run `project/Sync-PublishedImages.ps1` to compare every already-published `Url.tsv` JPG route with `root/Resource`. Use `-Apply` to update stale files in the `web-public` checkout, then commit and push that checkout. Firebase serves an existing flat JPG before a rewrite, so when flat and index artifacts both exist, both must match the local source. A URL row alone does not refresh deployed image bytes.
 2. **AJAX JSON parity & shadowing flats**:
    - XURL navigation loads `/{slug}.json`, not the HTML file. Both `index.html` and `index.json` must deploy atomically.

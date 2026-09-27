@@ -72,6 +72,7 @@ $env:PYTHONIOENCODING = 'utf-8'
    - If network or renderer access fails midway, resume the same checkpoint (`-Resume`); never refetch or mark published before verification succeeds.
 9. **Tiggu cache busting**:
    - Use the native Python script-reference rewriter on Windows. A single GNU `sed` pass over the baked tree can stall for minutes.
+   - Do not request a newly versioned production script URL before Firebase finishes deploying it. Firebase can cache a pre-deploy 404 for hours; verify the workflow first, then fetch the new URL.
 
 ---
 

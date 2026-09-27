@@ -77,6 +77,7 @@ $env:PYTHONIOENCODING = 'utf-8'
 
 ## Parent listings and homepage
 
+- **Sitewide CSS changes**: Tiggu inlines shared CSS into each rendered HTML page. Rebuild every published page (with no `Config/Render.lsv`) and deploy the changed HTML across the public tree; copying only the shared script or homepage leaves other pages with old styles. Keep the published slug list as the scope when copying artifacts, so stale local bake files do not enter `web-public`.
 - An isolated child publish does not rebuild parent listing HTML. To refresh tiles on a parent (e.g. `/computer/game`), RootSlug must be `computer/game`, not only `computer/game/doom`.
 - Do not run `publish-notion.ps1 -Slug root`. The published Notion `root` row is pulled into local homepage components and menu policies with NCMS `sync-home`, then rebuilt with Tiggu and a temporary `Config/Render.lsv` containing only `root` (see `ujnotes-home-tree`).
 

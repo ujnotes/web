@@ -848,6 +848,9 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
     $article = $marker.Substring('NCMS_RESULT='.Length) | ConvertFrom-Json
     $targetSlug = [string]$article.slug
     Assert-SafeSlug $targetSlug
+    if ($targetSlug -eq 'root') {
+        throw 'The homepage uses NCMS sync-home and a separate homepage bake; the article publisher cannot stage its menu policies.'
+    }
     $slugPath = $targetSlug.Replace('/', '\')
     $variants = @($article.variants)
     foreach ($variant in $variants) {

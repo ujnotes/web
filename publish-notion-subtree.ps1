@@ -117,6 +117,9 @@ if ($RootSlug.StartsWith('/') -or $RootSlug.EndsWith('/') -or $RootSlug.Contains
     @($RootSlug.Split('/') | Where-Object { $_ -in @('.', '..') }).Count -gt 0) {
     throw "Unsafe root slug: '$RootSlug'"
 }
+if ($RootSlug -eq 'root') {
+    throw 'The homepage uses NCMS sync-home and a separate homepage bake; it is not an article subtree.'
+}
 
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $scriptRoot 'PublishRunner.ps1')

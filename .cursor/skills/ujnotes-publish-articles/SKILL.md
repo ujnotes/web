@@ -73,6 +73,10 @@ $env:PYTHONIOENCODING = 'utf-8'
 9. **Tiggu cache busting**:
    - Use the native Python script-reference rewriter on Windows. A single GNU `sed` pass over the baked tree can stall for minutes.
    - Do not request a newly versioned production script URL before Firebase finishes deploying it. Firebase can cache a pre-deploy 404 for hours; verify the workflow first, then fetch the new URL.
+10. **Firebase Hosting storage quota**:
+   - After pushing `web-public`, confirm the Firebase GitHub workflow succeeded before treating the site as deployed. A push can fail with HTTP 429 `RESOURCE_EXHAUSTED` when retained Hosting releases fill project storage.
+   - Inspect the live channel's `retainedReleaseCount`. An unlimited setting can accumulate old versions. Set a bounded release retention in Firebase Hosting only after the owner approves deleting older release history; then rerun the failed deploy and verify live bytes.
+   - A Cloud Resource Manager API 403 during Firebase's preliminary permission check may be a warning. Use the final Hosting API error as the deployment failure reason.
 
 ---
 

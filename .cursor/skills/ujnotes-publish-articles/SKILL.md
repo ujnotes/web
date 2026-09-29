@@ -94,6 +94,7 @@ $env:PYTHONIOENCODING = 'utf-8'
 - Clean `web-site` (`D:\Ujnotes\Website\site\project`) and `web-public` (`D:\Ujnotes\Website\project\build`) before publishing.
 - Filter `ID.tsv`, every `ID_<lang>.tsv`, and `Translations.tsv` to the selected slug for an isolated build.
 - Local draft previews use `?full=true` on HTML or JSON routes. Keep the TSV `Status` column intact when the runtime includes draft rows; dropping the first cell shifts every field and makes the draft slug unreachable.
+- For the approved interim/public bake before queuing a new article, temporarily set its source ID and translation statuses to `publish` so the local renderer serves it, then restore the exact draft files. Use an isolated writable project copy with `Render.lsv`, filtered localized ID and translation tables, and only the article's needed URL rows. `Render.lsv` alone limits English pages; Tiggu still walks every published localized row and every global URL asset. Verify both languages' HTML/JSON, disclosure, and canonical cover in the isolated output before queuing the Notion row.
 
 ---
 

@@ -64,7 +64,14 @@ function Get-UjnotesNativeToolchain {
     $toolsRoot = Join-Path $WebsiteRoot '.native-tools'
     $minify = Join-Path $toolsRoot 'minify\minify.exe'
     $closure = Join-Path $toolsRoot 'closure-compiler-v20250402.jar'
-    $java = 'C:\Program Files\Android\Android Studio\jbr\bin\java.exe'
+    # Same as the wcodes console: Closure runs on the java from PATH (JDK 21). Android Studio's
+    # bundled JBR is JDK 25, which prints sun.misc.Unsafe deprecation WARNING lines from
+    # Closure's protobuf, and Tiggu's build.sh fails any bake whose log mentions a warning.
+    $javaCommand = Get-Command java -ErrorAction SilentlyContinue
+    if (-not $javaCommand) {
+        throw 'java is not on PATH (needed for Closure Compiler).'
+    }
+    $java = $javaCommand.Source
     foreach ($required in @($minify, $closure, $java)) {
         if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
             throw "Native publishing dependency is missing: $required. Run Install-NativePublishTools.ps1."

@@ -26,6 +26,8 @@ Business pillars with visible child tiles must each occupy a full row. The child
 
 ## Large groups vs. shared rows
 
+For tile labels that exceed the available width, query the Website Notion database by `length(Label)` and review only the long labels used in the visible tree. Shorten `Label` in Notion and the corresponding `Config/ID.tsv` row while retaining the complete `Title`; tile anchors expose `Title` on hover. Article headings at every depth use the full `Title`, falling back to `Label` when `Title` is empty or `0`.
+
 When a section inside a hub or tree expands into a multi-column horizontal subtree:
 1. **Large groups take the whole space**:
    - Register the slug in the Notion `root` row's 🏠 JSON under `largeGroupSlugs` (e.g. `science/physics`, `technology/computer`, `technology/electronics`), then run NCMS `sync-home`.

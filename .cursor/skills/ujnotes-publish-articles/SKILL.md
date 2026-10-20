@@ -85,6 +85,8 @@ $env:PYTHONIOENCODING = 'utf-8'
 
 ## Parent listings and homepage
 
+- For large generated trees, use native Windows `robocopy /E /MT:8 /R:1 /W:1` for the output transfer; recursive PowerShell `Copy-Item` can make the copy slower than the bake. Verify absolute source/destination roots and do not use mirroring to delete checkout files. Before pushing, scope page copies to published English IDs and registered published variants in `Translations.tsv`; preserve the renderer's language-prefixed root output rather than assuming every translated homepage uses the canonical homepage alias. Restore unrelated baseline routes and remove shadowing flat page artifacts through the publisher's normal layout rules.
+
 - **Sitewide CSS changes**: Tiggu inlines shared CSS into each rendered HTML page. Rebuild every published page (with no `Config/Render.lsv`) and deploy the changed HTML across the public tree; copying only the shared script or homepage leaves other pages with old styles. Keep the published slug list as the scope when copying artifacts, so stale local bake files do not enter `web-public`.
 - An isolated child publish does not rebuild parent listing HTML. To refresh tiles on a parent (e.g. `/computer/game`), RootSlug must be `computer/game`, not only `computer/game/doom`.
 - Do not run `publish-notion.ps1 -Slug root`. The published Notion `root` row is pulled into local homepage components and menu policies with NCMS `sync-home`, then rebuilt with Tiggu and a temporary `Config/Render.lsv` containing only `root` (see `ujnotes-home-tree`).

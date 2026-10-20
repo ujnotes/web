@@ -9,6 +9,8 @@ description: >-
 
 # Publish Ujnotes articles
 
+- When authoring a nested translation through Notion enhanced Markdown, put all 🌐 metadata fields in the callout's own rich text, separated with `<br>` (or actual rich-text newlines). Separate paragraphs become child blocks and are not read by NCMS's metadata parser. Verify with a `publish --status draft` review bundle before queuing. When merging TSV rows for local review, preserve unrelated lines verbatim rather than reserializing the whole table through a CSV writer.
+
 For a **new** article, do not start here. Follow `D:\Ujnotes\AGENTS.md` **New article sequence**: Notion English, then approved translations, then local files, then approved interim/public bake, then this publish-to-web step.
 
 ---

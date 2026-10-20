@@ -104,6 +104,13 @@ $env:PYTHONIOENCODING = 'utf-8'
 
 ## After deploy verification
 
+### Slow-stage recovery
+
+- OliveTin cleanup may continue after a publisher checkpoint reports success. Wait for the Console execution itself to finish before starting another publishing action; its concurrency guard covers cleanup too.
+- Distinguish rendering from output transfer and Git text normalization. If a completed bake is followed by a stalled transfer, stop only the identified Console execution, wait for its child processes to exit, and finish from the existing verified output. Do not requeue Notion or repeat the bake just to retry copying.
+- A native replacement for a slow `Repair-GitTextTree` pass must preserve the same extension allowlist and special filenames, UTF-8 BOM removal, CRLF/CR to LF, trailing whitespace removal per line, and exactly one terminal LF. Compare bytes and write only changed files. Run `git diff --cached --check` before committing.
+- A Git lock after cancellation may belong to a child process still exiting. Inspect processes and wait for release; do not delete a live lock.
+
 Verify:
 - `https://ujnotes.com/{slug}`
 - `https://ujnotes.com/{slug}.json`

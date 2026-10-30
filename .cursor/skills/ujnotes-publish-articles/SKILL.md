@@ -125,3 +125,8 @@ Commit leftover `web-site` ID/Url/PHP updates. Production is the `web-public` pu
 - Keep the Hosting workflow's `firebaseToolsVersion` pinned to a version verified by a successful Ujnotes deployment. An unpinned `latest` can introduce new Google API prerequisites and break an otherwise unchanged static Hosting deploy. If deployment fails after a tool update, compare its version and final error with the last successful run before changing project services or permissions.
 - The current verified pin is `15.34.0`; `15.34.2` failed at a Service Usage API prerequisite in this project. Revalidate the pin deliberately when upgrading.
 - If `gh` reports 404 for `ujnotes/web-public`, inspect existing account names with `gh auth status`. The personal `ujLion` account can read this repository's Actions runs. Select its existing token only in the child command's environment; do not print credentials or change the user's global active account.
+
+## Build-log diagnostic detection
+
+- A route or asset path may legitimately contain `error` or `warning`. Do not classify a build as failed solely because either word occurs anywhere in its log. Preserve non-zero process exit handling and detect structured diagnostic severity (for example `PHP Warning:`, `Fatal error:`, `WARNING:` or compiler `ERROR -`) separately from URLs and paths.
+- When repairing this detector, verify both harmless topic paths and real PHP, Java and compiler diagnostics. Resume the same publisher checkpoint after a render-stage failure so already completed stages are preserved.

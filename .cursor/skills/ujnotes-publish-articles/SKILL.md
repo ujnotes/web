@@ -130,3 +130,11 @@ Commit leftover `web-site` ID/Url/PHP updates. Production is the `web-public` pu
 
 - A route or asset path may legitimately contain `error` or `warning`. Do not classify a build as failed solely because either word occurs anywhere in its log. Preserve non-zero process exit handling and detect structured diagnostic severity (for example `PHP Warning:`, `Fatal error:`, `WARNING:` or compiler `ERROR -`) separately from URLs and paths.
 - When repairing this detector, verify both harmless topic paths and real PHP, Java and compiler diagnostics. Resume the same publisher checkpoint after a render-stage failure so already completed stages are preserved.
+
+
+## Console API publication tracking
+
+- For an already-authorized publication, the running local Console supports JSON POST requests under `http://127.0.0.1:47821/api/OliveTinApiService/`.
+- `StartAction` accepts `bindingId`, an `arguments` array of `{name, value}` objects, and a fresh `uniqueTrackingId`. Use the configured action IDs (for example `health-check` or `publish-article` with the `slug` argument); retain its returned `executionTrackingId`.
+- Query `ExecutionStatus` with that tracking ID. Wait for `logEntry.executionFinished` and verify `exitCode == 0`; a successful start alone does not verify publication. Keep logs compact by excluding the large NCMS_RESULT line when reporting progress.
+- After deployment, independently verify the matching successful GitHub Actions run and both language routes, AJAX JSON, disclosures, canonical/hreflang metadata, and cover bytes. A 200 response alone cannot establish content parity.

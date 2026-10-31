@@ -351,6 +351,20 @@ function Set-TranslationsStatus {
     Write-LinesPreservingNewline -Path $Path -Lines @($lines)
 }
 
+function Get-FrontendAssetPaths {
+    param([string]$RenderRoot, [object[]]$Variants)
+    $assets = foreach ($variant in $Variants) {
+        $componentPath = Join-Path $RenderRoot ([string]$variant.component)
+        $markup = [System.IO.File]::ReadAllText($componentPath)
+        foreach ($match in [regex]::Matches($markup, 'data-(?:source|component-script|component-style)="(/resource/[a-z0-9_./-]+)"')) {
+            $asset = $match.Groups[1].Value.TrimStart('/')
+            if (($asset -split '/') -contains '..') { throw 'Unsafe frontend asset path' }
+            $asset
+        }
+    }
+    return @($assets | Sort-Object -Unique)
+}
+
 function Merge-UrlRow {
     param(
         [Parameter(Mandatory)] [string]$Path,
@@ -902,7 +916,7 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
             -WorkingDirectory $projectRoot
 
         $componentText = Read-Utf8Text -Path $realVariantComponent
-        if ((Test-Path -LiteralPath $coverSource) -and -not $componentText.Contains('Component_cover.php')) {
+        if ((Test-Path -LiteralPath $coverSource) -and -not $componentText.Contains('Component_cover.php') -and -not $componentText.Contains('no-auto-cover')) {
             $coverAlt = ([string]$variant.title).Replace('\', '\\').Replace("'", "\'")
             $coverMarkup = "<?php `$alt='$coverAlt'; require('../HTML/Fragment/Component_cover.php') ?>"
             Write-Utf8Text -Path $realVariantComponent -Text ($coverMarkup + "`n`n" + $componentText)
@@ -970,6 +984,16 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
 
     $hasCover = [System.IO.File]::ReadAllText($realComponent).Contains('Component_cover.php')
     Merge-UrlRow -Path $realUrlPath -ArticleSlug $targetSlug -HasCover $hasCover
+    $frontendAssets = @(Get-FrontendAssetPaths -RenderRoot $renderRoot -Variants $variants)
+    $urlLines = @([System.IO.File]::ReadAllLines($realUrlPath))
+    foreach ($asset in $frontendAssets) {
+        $assetDirectory = $asset.Substring(0, $asset.LastIndexOf('/') + 1)
+        $assetStem = [System.IO.Path]::GetFileNameWithoutExtension($asset)
+        $assetExtension = [System.IO.Path]::GetExtension($asset).TrimStart('.')
+        $assetRow = "$assetDirectory`t$assetStem`t$assetExtension"
+        if ($urlLines -notcontains $assetRow) { $urlLines += $assetRow }
+    }
+    Write-LinesPreservingNewline -Path $realUrlPath -Lines $urlLines
     Add-SitemapUrl -Path $realSitemapPath -Url "$BaseUrl/$targetSlug"
     Complete-Stage 'update-source'
     }
@@ -1024,6 +1048,7 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
     $stageUrlLines = @([System.IO.File]::ReadAllLines($stageUrlPath))
     $stageUrlText = $stageUrlLines[0] + "`n"
     $keptUrlKeys = @{}
+    $frontendAssets = @(Get-FrontendAssetPaths -RenderRoot $renderRoot -Variants $variants)
     foreach ($urlLine in $stageUrlLines | Select-Object -Skip 1) {
         $fields = @($urlLine -split "`t")
         if ($fields.Count -lt 3) {
@@ -1043,7 +1068,8 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
         }
         $isCoverRow = ($extension -in @('jpg', 'jpeg')) -and ($rowSlug -eq $targetSlug)
         $isInlineRow = $normalizedPath -eq $targetSlug
-        if (-not ($isCoverRow -or $isInlineRow)) {
+        $isFrontendRow = $frontendAssets -contains "$rowSlug.$extension"
+        if (-not ($isCoverRow -or $isInlineRow -or $isFrontendRow)) {
             continue
         }
         $rowKey = "$normalizedPath|$assetName|$extension"
@@ -1299,6 +1325,16 @@ print("NCMS_RESULT=" + json.dumps(result, ensure_ascii=True))
             }
     }
     $gitPaths += $legacyGitPaths
+    foreach ($asset in @(Get-FrontendAssetPaths -RenderRoot $renderRoot -Variants $variants)) {
+        $stagedAsset = Join-Path (Join-Path $stageProject 'public') $asset
+        if (-not (Test-Path -LiteralPath $stagedAsset -PathType Leaf)) {
+            throw "Baked frontend asset is missing: $asset"
+        }
+        $publicAsset = Join-Path (Join-Path $publicRepo 'public') $asset
+        New-Item -ItemType Directory -Path (Split-Path -Parent $publicAsset) -Force | Out-Null
+        Copy-Item -LiteralPath $stagedAsset -Destination $publicAsset -Force
+        $gitPaths += "public/$asset"
+    }
     foreach ($gitPath in $gitPaths) {
         Repair-GitTextPath -Path (Join-Path $publicRepo ($gitPath.Replace('/', '\')))
     }

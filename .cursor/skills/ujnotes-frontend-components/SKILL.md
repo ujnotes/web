@@ -51,6 +51,8 @@ Notion enhanced Markdown must put these fields in one rich-text value using `<br
 
 - Interactive comparisons with an optional calculator should not assume a workload when it is disabled. Keep cost-only columns and cost chart metrics hidden until enabled, retain source-rate comparisons, and ensure an inline search stays focused and usable even when no rows match.
 
-- Keep persistent search and sort controls outside regenerated table headers so filtering and zero-result states preserve focus. Group rates beside model names, keep wide tables in their own scroll regions, and use a full-width model selector above a balanced workload grid instead of leaving an orphan field.
+- Preserve search and sort control nodes across table rerenders. Header-embedded search must reattach even when no rows match, then restore focus and caret position. Group rates beside model names, keep wide tables in their own scroll regions, and use a full-width model selector above a balanced workload grid instead of leaving an orphan field.
 
 - For pricing charts, scale bars by the exact selected metric without minimum percentage floors; rate views show only the selected rate colour, and workload totals may show input/output shares. Label units with the active display currency. Native disclosure controls should keep secondary filters and retired-model archives available without displacing the main comparison; preserve their open state across rerenders.
+
+- Tabbed tool views should share filter, currency, date and workload state, expose proper tab/tabpanel relationships with roving keyboard focus, and switch to the calculator when a model is selected. Keep view-specific downloads with their table or chart panel.

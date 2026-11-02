@@ -22,6 +22,7 @@ Notion enhanced Markdown must put these fields in one rich-text value using `<br
 - Interactive tool placeholders opt out of automatic article-cover injection. The publisher must respect that marker too; existing cover assets may still serve menu tiles without preceding the tool.
 - Store runtime assets and data under Resource, and register every fetched public route in the bake URL list. Keep tool data separate from the article AJAX JSON endpoint. Static resource JSON must bypass every article JSON rewrite, including duplicate late catch-alls.
 - NCMS derives asset URL rows from component declarations. Single-page publication must merge these rows, retain dependencies in its isolated URL list, and copy and stage all the resulting assets from baked output. Do not patch generated output by hand.
+- Declarative components depend on the shared site loader as well as their declared widget assets. Include the shared bundle in dependency collection, isolated URL filtering, baking and deployment. A widget whose files return 200 can still remain at its loading placeholder when the entry page uses an older bundle without the loader. When introducing or updating that loader, use Tiggu's script-version pass to refresh existing published entry-page references; verify a direct load and AJAX navigation from another page against the deployed bundle.
 
 ## Price data
 

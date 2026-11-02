@@ -356,6 +356,12 @@ function Get-FrontendAssetPaths {
     $assets = foreach ($variant in $Variants) {
         $componentPath = Join-Path $RenderRoot ([string]$variant.component)
         $markup = [System.IO.File]::ReadAllText($componentPath)
+        # Declarative widgets also depend on the site-owned loader in the shared
+        # bundle. Include it in the isolated bake and public copy, not just the
+        # widget's own script/style/data files.
+        if ($markup -match 'data-component="[a-z0-9-]+"') {
+            'script.js'
+        }
         foreach ($match in [regex]::Matches($markup, 'data-(?:source|component-script|component-style)="(/resource/[a-z0-9_./-]+)"')) {
             $asset = $match.Groups[1].Value.TrimStart('/')
             if (($asset -split '/') -contains '..') { throw 'Unsafe frontend asset path' }
